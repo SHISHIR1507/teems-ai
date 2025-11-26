@@ -1,0 +1,16 @@
+-- 1. Enable the Vector extension for embeddings (CRITICAL for AI)
+create extension if not exists vector;
+
+-- 2. Create a standardized timestamp function (optional but good for 'updated_at')
+create or replace function update_modified_column()
+returns trigger as $$
+begin
+    new.updated_at = now();
+    return new;
+end;
+$$ language 'plpgsql';
+
+
+
+
+

@@ -1,0 +1,1 @@
+INSERT INTO tenants (name) VALUES ('Test Company') RETURNING id;

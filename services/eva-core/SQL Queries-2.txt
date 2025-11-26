@@ -1,0 +1,31 @@
+-- 3. Tenants Table (The top-level organization)
+create table tenants (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  domain text,
+  plan text default 'free',
+  metadata jsonb default '{}'::jsonb,
+  created_at timestamp with time zone default now()
+);
+
+-- 4. Users Table (Linked to Supabase Auth AND Tenants)
+create table users (
+  id uuid primary key references auth.users(id) on delete cascade, -- Links to Supabase Auth
+  tenant_id uuid references tenants(id) on delete cascade not null,
+  email text not null,
+  full_name text,
+  is_active boolean default true,
+  is_service_account boolean default false,
+  metadata jsonb default '{}'::jsonb,
+  created_at timestamp with time zone default now()
+);
+
+-- 5. User Roles (For permissions)
+create table user_roles (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid references users(id) on delete cascade not null,
+  tenant_id uuid references tenants(id) on delete cascade not null, -- implied context
+  role text not null, -- e.g., 'admin', 'viewer'
+  scope text,         -- e.g., 'global', 'project_specific'
+  created_at timestamp with time zone default now()
+);

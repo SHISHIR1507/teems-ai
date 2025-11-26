@@ -1,0 +1,37 @@
+-- 6. Agents (The AI Bots)
+create table agents (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid references tenants(id) on delete cascade not null,
+  owner_user_id uuid references users(id) on delete set null,
+  name text not null,
+  visibility text default 'private', -- 'public' or 'private'
+  metadata jsonb default '{}'::jsonb,
+  created_at timestamp with time zone default now()
+);
+
+-- 7. Agent Versions (Versioning your AI logic)
+create table agent_versions (
+  id uuid primary key default gen_random_uuid(),
+  agent_id uuid references agents(id) on delete cascade not null,
+  version text not null, -- e.g., '1.0.0'
+  manifest jsonb,        -- The prompt/config
+  checksum text,
+  lifecycle text,        -- 'active', 'deprecated'
+  created_at timestamp with time zone default now()
+);
+
+-- 8. Agent Executions (Logs of every time an AI ran)
+create table agent_executions (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid references tenants(id) on delete cascade not null,
+  agent_id uuid references agents(id) on delete cascade not null,
+  agent_version_id uuid references agent_versions(id) on delete cascade not null,
+  initiator_user_id uuid references users(id) on delete set null,
+  status text not null, -- 'running', 'completed', 'failed'
+  input_payload jsonb,
+  output_payload jsonb,
+  logs_s3_url text,     -- URL to full logs if they are huge
+  error jsonb,
+  started_at timestamp with time zone default now(),
+  finished_at timestamp with time zone
+);
