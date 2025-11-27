@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'services/workflow-service/realtime/**'
+      - 'infra/ecs-realtime-stack.yaml'
+      - '.github/workflows/deploy-realtime-ecs.yml'
+  workflow_dispatch:  # Allow manual trigger
 
 permissions:
   contents: read

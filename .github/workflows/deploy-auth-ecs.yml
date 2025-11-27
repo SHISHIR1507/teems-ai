@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'services/user-service/**'
+      - 'infra/ecs-auth-stack.yaml'
+      - '.github/workflows/deploy-auth-ecs.yml'
+  workflow_dispatch:  # Allow manual trigger
 
 permissions:
   contents: read
