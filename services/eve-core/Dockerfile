@@ -26,7 +26,7 @@ COPY --from=builder /opt/venv /opt/venv
 COPY src ./src
 COPY main.py main.py
 COPY README.md README.md
-COPY .env .env
+# .env file is optional - environment variables will be injected by ECS
 
 EXPOSE 8080
 CMD ["uvicorn", "eva_core.app:create_app", "--factory", "--host", "0.0.0.0", "--port", "8080"]

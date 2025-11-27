@@ -63,6 +63,9 @@ jobs:
           echo "IMAGE_URI=${IMAGE_URI}" >> "$GITHUB_ENV"
 
       - name: Deploy CloudFormation stack (network, cluster, ALB, ECS service)
+        env:
+          BRANDFETCH_API_KEY: ${{ secrets.BRANDFETCH_API_KEY }}
+          DATABASE_URL: ${{ secrets.BRANDFETCH_DATABASE_URL }}
         run: |
           set -e
           aws cloudformation deploy \
@@ -75,6 +78,8 @@ jobs:
               ContainerPort=8080 \
               DesiredCount=1 \
               HealthCheckPath="/health" \
+              BrandfetchApiKey="${BRANDFETCH_API_KEY:-}" \
+              DatabaseUrl="${DATABASE_URL:-}" \
             --no-fail-on-empty-changeset
 
       - name: Output service URL

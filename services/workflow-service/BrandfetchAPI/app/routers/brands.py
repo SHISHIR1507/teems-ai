@@ -72,8 +72,8 @@ async def fetch_brand(
 async def get_brand(
     domain: str,
     refresh: bool = Query(default=False, description="Force refresh even if cached"),
-    session: Annotated[AsyncSession, Depends(get_session)] = Depends(),
-    client: Annotated[BrandfetchClient, Depends(get_brandfetch_client)] = Depends(),
+    session: Annotated[AsyncSession, Depends(get_session)],
+    client: Annotated[BrandfetchClient, Depends(get_brandfetch_client)],
 ) -> BrandRecordResponse:
     normalized = BrandfetchClient._extract_clean_domain(domain)
     record = await session.scalar(select(BrandRecord).where(BrandRecord.domain == normalized))
@@ -107,7 +107,7 @@ async def get_brand(
 async def list_brands(
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    session: Annotated[AsyncSession, Depends(get_session)] = Depends(),
+    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> list[BrandSummary]:
     stmt = (
         select(BrandRecord)

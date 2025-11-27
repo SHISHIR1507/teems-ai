@@ -17,6 +17,49 @@ Parameters:
   HealthCheckPath:
     Type: String
     Default: /health
+  Auth0Domain:
+    Type: String
+    Default: ""
+    Description: Auth0 domain (e.g., your-tenant.auth0.com)
+  Auth0Audience:
+    Type: String
+    Default: ""
+    Description: Auth0 API audience/identifier
+  Auth0ClientId:
+    Type: String
+    Default: ""
+    Description: Auth0 client ID
+  Auth0ClientSecret:
+    Type: String
+    Default: ""
+    Description: Auth0 client secret
+  Auth0ManagementAudience:
+    Type: String
+    Default: ""
+    Description: Auth0 Management API audience
+  PostgresHost:
+    Type: String
+    Default: ""
+    Description: PostgreSQL host (optional if using AWS RDS endpoint)
+  PostgresPort:
+    Type: Number
+    Default: 5432
+  PostgresDb:
+    Type: String
+    Default: ""
+    Description: PostgreSQL database name
+  PostgresUser:
+    Type: String
+    Default: ""
+    Description: PostgreSQL username
+  PostgresPassword:
+    Type: String
+    Default: ""
+    Description: PostgreSQL password
+  AwsRegion:
+    Type: String
+    Default: ""
+    Description: AWS region (optional, for Secrets Manager integration)
 
 Resources:
   VPC:
@@ -213,6 +256,30 @@ Resources:
           Environment:
             - Name: ENV
               Value: production
+            - Name: LOG_LEVEL
+              Value: info
+            - Name: AUTH0_DOMAIN
+              Value: !Ref Auth0Domain
+            - Name: AUTH0_AUDIENCE
+              Value: !Ref Auth0Audience
+            - Name: AUTH0_CLIENT_ID
+              Value: !Ref Auth0ClientId
+            - Name: AUTH0_CLIENT_SECRET
+              Value: !Ref Auth0ClientSecret
+            - Name: AUTH0_MANAGEMENT_AUDIENCE
+              Value: !Ref Auth0ManagementAudience
+            - Name: POSTGRES_HOST
+              Value: !Ref PostgresHost
+            - Name: POSTGRES_PORT
+              Value: !Ref PostgresPort
+            - Name: POSTGRES_DB
+              Value: !Ref PostgresDb
+            - Name: POSTGRES_USER
+              Value: !Ref PostgresUser
+            - Name: POSTGRES_PASSWORD
+              Value: !Ref PostgresPassword
+            - Name: AWS_REGION
+              Value: !Ref AwsRegion
           LogConfiguration:
             LogDriver: awslogs
             Options:

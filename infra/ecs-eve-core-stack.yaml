@@ -17,6 +17,32 @@ Parameters:
   HealthCheckPath:
     Type: String
     Default: /docs
+  DatabaseUrl:
+    Type: String
+    Default: ""
+    Description: PostgreSQL database URL (e.g., postgresql://user:pass@host:5432/dbname)
+  OpenAIApiKey:
+    Type: String
+    Default: ""
+    Description: OpenAI API key (optional if using Gemini)
+  GeminiApiKey:
+    Type: String
+    Default: ""
+    Description: Google Gemini API key (optional if using OpenAI)
+  EmbeddingProvider:
+    Type: String
+    Default: openai
+    AllowedValues: [openai, gemini]
+  EmbeddingModel:
+    Type: String
+    Default: text-embedding-3-small
+  DefaultLLMProvider:
+    Type: String
+    Default: openai
+    AllowedValues: [openai, gemini]
+  DefaultLLMModel:
+    Type: String
+    Default: gpt-4o-mini
 
 Resources:
   VPC:
@@ -213,6 +239,22 @@ Resources:
           Environment:
             - Name: ENV
               Value: production
+            - Name: LOG_LEVEL
+              Value: info
+            - Name: DATABASE_URL
+              Value: !Ref DatabaseUrl
+            - Name: EMBEDDING_PROVIDER
+              Value: !Ref EmbeddingProvider
+            - Name: EMBEDDING_MODEL
+              Value: !Ref EmbeddingModel
+            - Name: DEFAULT_LLM_PROVIDER
+              Value: !Ref DefaultLLMProvider
+            - Name: DEFAULT_LLM_MODEL
+              Value: !Ref DefaultLLMModel
+            - Name: OPENAI_API_KEY
+              Value: !Ref OpenAIApiKey
+            - Name: GEMINI_API_KEY
+              Value: !Ref GeminiApiKey
           LogConfiguration:
             LogDriver: awslogs
             Options:

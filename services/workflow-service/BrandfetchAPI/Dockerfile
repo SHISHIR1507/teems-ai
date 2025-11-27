@@ -23,8 +23,8 @@ WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
 COPY app ./app
-COPY .env .env
 COPY README.md README.md
+# .env file is optional - environment variables will be injected by ECS
 
 EXPOSE 8080
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]

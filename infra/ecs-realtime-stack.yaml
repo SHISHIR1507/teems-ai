@@ -213,6 +213,12 @@ Resources:
           Environment:
             - Name: ENV
               Value: production
+            - Name: LOG_LEVEL
+              Value: info
+            - Name: DEFAULT_JOB_DURATION_SECONDS
+              Value: "3.0"
+            - Name: MAX_CONNECTIONS
+              Value: "500"
           LogConfiguration:
             LogDriver: awslogs
             Options:

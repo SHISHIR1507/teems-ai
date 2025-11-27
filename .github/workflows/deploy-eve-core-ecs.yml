@@ -63,6 +63,14 @@ jobs:
           echo "IMAGE_URI=${IMAGE_URI}" >> "$GITHUB_ENV"
 
       - name: Deploy CloudFormation stack (network, cluster, ALB, ECS service)
+        env:
+          DATABASE_URL: ${{ secrets.EVE_CORE_DATABASE_URL }}
+          OPENAI_API_KEY: ${{ secrets.EVE_CORE_OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.EVE_CORE_GEMINI_API_KEY }}
+          EMBEDDING_PROVIDER: ${{ secrets.EVE_CORE_EMBEDDING_PROVIDER }}
+          EMBEDDING_MODEL: ${{ secrets.EVE_CORE_EMBEDDING_MODEL }}
+          DEFAULT_LLM_PROVIDER: ${{ secrets.EVE_CORE_DEFAULT_LLM_PROVIDER }}
+          DEFAULT_LLM_MODEL: ${{ secrets.EVE_CORE_DEFAULT_LLM_MODEL }}
         run: |
           set -e
           aws cloudformation deploy \
@@ -75,6 +83,13 @@ jobs:
               ContainerPort=8080 \
               DesiredCount=2 \
               HealthCheckPath="/docs" \
+              DatabaseUrl="${DATABASE_URL:-}" \
+              OpenAIApiKey="${OPENAI_API_KEY:-}" \
+              GeminiApiKey="${GEMINI_API_KEY:-}" \
+              EmbeddingProvider="${EMBEDDING_PROVIDER:-openai}" \
+              EmbeddingModel="${EMBEDDING_MODEL:-text-embedding-3-small}" \
+              DefaultLLMProvider="${DEFAULT_LLM_PROVIDER:-openai}" \
+              DefaultLLMModel="${DEFAULT_LLM_MODEL:-gpt-4o-mini}" \
             --no-fail-on-empty-changeset
 
       - name: Output service URL

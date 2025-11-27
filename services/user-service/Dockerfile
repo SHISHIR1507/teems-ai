@@ -24,7 +24,7 @@ WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
 COPY Auth ./Auth
-COPY .env .env
+# .env file is optional - environment variables will be injected by ECS
 
 EXPOSE 8080
 CMD ["uvicorn", "Auth.main:app", "--host", "0.0.0.0", "--port", "8080"]

@@ -17,6 +17,14 @@ Parameters:
   HealthCheckPath:
     Type: String
     Default: /health
+  BrandfetchApiKey:
+    Type: String
+    Default: ""
+    Description: Brandfetch API key
+  DatabaseUrl:
+    Type: String
+    Default: ""
+    Description: PostgreSQL database URL
 
 Resources:
   VPC:
@@ -213,6 +221,12 @@ Resources:
           Environment:
             - Name: ENV
               Value: production
+            - Name: LOG_LEVEL
+              Value: info
+            - Name: BRANDFETCH_API_KEY
+              Value: !Ref BrandfetchApiKey
+            - Name: DATABASE_URL
+              Value: !Ref DatabaseUrl
           LogConfiguration:
             LogDriver: awslogs
             Options:
