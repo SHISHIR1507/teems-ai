@@ -40,7 +40,7 @@ class RAGService:
         document = Document(
             tenant_id=payload.tenant_id,
             title=payload.title,
-            metadata=payload.metadata,
+            meta_data=payload.metadata,
         )
         self.session.add(document)
         await self.session.flush()
@@ -53,7 +53,7 @@ class RAGService:
                     tenant_id=payload.tenant_id,
                     chunk_index=idx,
                     content=chunk_text_value,
-                    metadata={"source": "text_ingest", **(payload.metadata or {})},
+                    meta_data={"source": "text_ingest", **(payload.metadata or {})},
                     embedding=vector,
                 )
             )
@@ -102,7 +102,7 @@ class RAGService:
                     title=document.title,
                     content=chunk.content,
                     score=float(score or 0),
-                    metadata=chunk.metadata,
+                    metadata=chunk.meta_data,
                 )
             )
 
