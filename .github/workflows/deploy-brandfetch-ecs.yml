@@ -67,6 +67,36 @@ jobs:
 
           echo "IMAGE_URI=${IMAGE_URI}" >> "$GITHUB_ENV"
 
+      - name: Wait for stack to be ready (if exists)
+        run: |
+          set -e
+          if aws cloudformation describe-stacks --stack-name "${CLOUD_FORMATION_STACK}" >/dev/null 2>&1; then
+            echo "Stack exists, waiting for it to be in a stable state..."
+            STACK_STATUS=$(aws cloudformation describe-stacks \
+              --stack-name "${CLOUD_FORMATION_STACK}" \
+              --query "Stacks[0].StackStatus" \
+              --output text)
+            
+            echo "Current stack status: ${STACK_STATUS}"
+            
+            # Wait if stack is in progress
+            if [[ "${STACK_STATUS}" == *"IN_PROGRESS"* ]]; then
+              echo "Stack is ${STACK_STATUS}, waiting for completion..."
+              aws cloudformation wait stack-create-complete --stack-name "${CLOUD_FORMATION_STACK}" 2>/dev/null || \
+              aws cloudformation wait stack-update-complete --stack-name "${CLOUD_FORMATION_STACK}" 2>/dev/null || \
+              aws cloudformation wait stack-rollback-complete --stack-name "${CLOUD_FORMATION_STACK}" 2>/dev/null || true
+              
+              # Check final status
+              FINAL_STATUS=$(aws cloudformation describe-stacks \
+                --stack-name "${CLOUD_FORMATION_STACK}" \
+                --query "Stacks[0].StackStatus" \
+                --output text)
+              echo "Stack is now: ${FINAL_STATUS}"
+            fi
+          else
+            echo "Stack does not exist yet, will create new stack"
+          fi
+
       - name: Deploy CloudFormation stack (network, cluster, ALB, ECS service)
         env:
           BRANDFETCH_API_KEY: ${{ secrets.BRANDFETCH_API_KEY }}

@@ -20,8 +20,15 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     async def _startup() -> None:
-        await init_db()
-        logger.info("Database initialized with pgvector support")
+        try:
+            await init_db()
+            logger.info("Database initialized with pgvector support")
+        except Exception as e:
+            logger.error("Application startup failed due to database connection error: {}", str(e))
+            logger.error(
+                "Please verify your DATABASE_URL environment variable and ensure the database server is running and accessible."
+            )
+            raise
 
     app.include_router(router)
     return app
