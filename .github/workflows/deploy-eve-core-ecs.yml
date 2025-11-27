@@ -68,10 +68,11 @@ jobs:
           echo "IMAGE_URI=${IMAGE_URI}" >> "$GITHUB_ENV"
 
       - name: Wait for stack to be ready (if exists)
+        timeout-minutes: 20
         run: |
           set -e
           if aws cloudformation describe-stacks --stack-name "${CLOUD_FORMATION_STACK}" >/dev/null 2>&1; then
-            echo "Stack exists, waiting for it to be in a stable state..."
+            echo "Stack exists, checking status..."
             STACK_STATUS=$(aws cloudformation describe-stacks \
               --stack-name "${CLOUD_FORMATION_STACK}" \
               --query "Stacks[0].StackStatus" \
@@ -79,19 +80,43 @@ jobs:
             
             echo "Current stack status: ${STACK_STATUS}"
             
-            # Wait if stack is in progress
+            # Wait if stack is in progress (with timeout)
             if [[ "${STACK_STATUS}" == *"IN_PROGRESS"* ]]; then
-              echo "Stack is ${STACK_STATUS}, waiting for completion..."
-              aws cloudformation wait stack-create-complete --stack-name "${CLOUD_FORMATION_STACK}" 2>/dev/null || \
-              aws cloudformation wait stack-update-complete --stack-name "${CLOUD_FORMATION_STACK}" 2>/dev/null || \
-              aws cloudformation wait stack-rollback-complete --stack-name "${CLOUD_FORMATION_STACK}" 2>/dev/null || true
+              echo "Stack is ${STACK_STATUS}, waiting for completion (max 20 minutes)..."
+              MAX_WAIT=1200  # 20 minutes in seconds
+              ELAPSED=0
+              POLL_INTERVAL=30  # Check every 30 seconds
               
-              # Check final status
+              while [ $ELAPSED -lt $MAX_WAIT ]; do
+                CURRENT_STATUS=$(aws cloudformation describe-stacks \
+                  --stack-name "${CLOUD_FORMATION_STACK}" \
+                  --query "Stacks[0].StackStatus" \
+                  --output text 2>/dev/null || echo "UNKNOWN")
+                
+                echo "  [${ELAPSED}s] Stack status: ${CURRENT_STATUS}"
+                
+                if [[ ! "${CURRENT_STATUS}" == *"IN_PROGRESS"* ]]; then
+                  echo "Stack reached stable state: ${CURRENT_STATUS}"
+                  break
+                fi
+                
+                sleep $POLL_INTERVAL
+                ELAPSED=$((ELAPSED + POLL_INTERVAL))
+              done
+              
+              # Final status check
               FINAL_STATUS=$(aws cloudformation describe-stacks \
                 --stack-name "${CLOUD_FORMATION_STACK}" \
                 --query "Stacks[0].StackStatus" \
                 --output text)
-              echo "Stack is now: ${FINAL_STATUS}"
+              
+              if [[ "${FINAL_STATUS}" == *"IN_PROGRESS"* ]]; then
+                echo "Warning: Stack still in progress after timeout. Proceeding anyway..."
+              else
+                echo "Stack is now: ${FINAL_STATUS}"
+              fi
+            else
+              echo "Stack is already in stable state: ${STACK_STATUS}"
             fi
           else
             echo "Stack does not exist yet, will create new stack"
