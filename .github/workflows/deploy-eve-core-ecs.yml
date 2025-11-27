@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'services/eve-core/**'
+      - 'infra/ecs-eve-core-stack.yaml'
+      - '.github/workflows/deploy-eve-core-ecs.yml'
+  workflow_dispatch:  # Allow manual trigger
 
 permissions:
   contents: read

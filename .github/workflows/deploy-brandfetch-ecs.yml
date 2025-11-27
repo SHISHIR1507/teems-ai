@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'services/workflow-service/BrandfetchAPI/**'
+      - 'infra/ecs-brandfetch-stack.yaml'
+      - '.github/workflows/deploy-brandfetch-ecs.yml'
+  workflow_dispatch:  # Allow manual trigger
 
 permissions:
   contents: read
