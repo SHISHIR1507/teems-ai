@@ -1,0 +1,34 @@
+[project]
+name = "user-service"
+version = "0.1.0"
+description = "FastAPI Auth0-backed user authentication microservice"
+requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Teems AI", email = "engineering@teems.ai" }
+]
+dependencies = [
+    "fastapi>=0.111,<0.112",
+    "uvicorn[standard]>=0.30,<0.31",
+    "httpx>=0.27,<0.28",
+    "python-jose[cryptography]>=3.3,<4.0",
+    "pydantic>=2.7,<3.0",
+    "pydantic-settings>=2.3,<3.0",
+    "python-dotenv>=1.0,<2.0",
+    "loguru>=0.7,<0.8"
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.3,<9.0",
+    "pytest-asyncio>=0.23,<0.24"
+]
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["Auth"]
+

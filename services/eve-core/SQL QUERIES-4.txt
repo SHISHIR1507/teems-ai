@@ -1,0 +1,16 @@
+-- 9. Vector Records (Your Knowledge Base)
+create table vector_records (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid references tenants(id) on delete cascade not null,
+  doc_id text,          -- Original document ID
+  namespace text,       -- To group vectors (e.g., 'marketing_docs')
+  text text,            -- The actual text chunk
+  metadata jsonb,       -- Page number, author, etc.
+  embedding vector(1536), -- <--- THE MAGIC COLUMN
+  source_url text,
+  created_at timestamp with time zone default now()
+);
+
+-- Create an index for fast searching (IVFFlat is standard for speed)
+create index on vector_records using ivfflat (embedding vector_cosine_ops)
+with (lists = 100);

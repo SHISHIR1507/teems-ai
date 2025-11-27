@@ -1,0 +1,54 @@
+-- 10. Conversations (Chat sessions)
+create table conversations (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid references tenants(id) on delete cascade not null,
+  user_id uuid references users(id) on delete set null,
+  title text,
+  status text default 'active',
+  metadata jsonb,
+  last_message_at timestamp with time zone,
+  created_at timestamp with time zone default now()
+);
+
+-- 11. Messages (Individual chat bubbles)
+create table messages (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid references tenants(id) on delete cascade not null,
+  conversation_id uuid references conversations(id) on delete cascade not null,
+  role text not null,    -- 'user' or 'assistant'
+  content text,
+  content_json jsonb,    -- for rich UI elements
+  provider_metadata jsonb, -- Token usage from OpenAI/Anthropic
+  token_count int,
+  created_at timestamp with time zone default now()
+);
+
+-- 12. Usage Events (Raw tracking of API calls)
+create table usage_events (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid references tenants(id) on delete cascade not null,
+  event_id text,        -- External ID from provider
+  service text,         -- 'gpt-4', 'claude'
+  operation text,       -- 'completion', 'embedding'
+  provider text,
+  model text,
+  input_tokens int,
+  output_tokens int,
+  cost_estimate numeric(10, 6), -- Precise currency handling
+  raw jsonb,
+  billed boolean default false,
+  created_at timestamp with time zone default now()
+);
+
+-- 13. Billing Ledger (Invoices)
+create table billing_ledger (
+  id uuid primary key default gen_random_uuid(),
+  tenant_id uuid references tenants(id) on delete cascade not null,
+  usage_event_id uuid references usage_events(id),
+  invoice_id uuid,
+  amount numeric(10, 2),
+  currency text default 'USD',
+  description text,
+  metadata jsonb,
+  created_at timestamp with time zone default now()
+);

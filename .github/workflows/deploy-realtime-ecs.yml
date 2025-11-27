@@ -1,0 +1,94 @@
+name: Deploy Realtime Workflow Service to ECS
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  APP_NAME: teems-realtime
+  ECR_REPOSITORY: teems-realtime
+  CLOUD_FORMATION_STACK: teems-realtime-ecs
+
+jobs:
+  deploy:
+    name: Build, Push, and Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Ensure ECR repository exists
+        run: |
+          set -e
+          if ! aws ecr describe-repositories --repository-names "${ECR_REPOSITORY}" >/dev/null 2>&1; then
+            aws ecr create-repository --repository-name "${ECR_REPOSITORY}" >/dev/null
+          fi
+
+      - name: Build and push Docker image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          set -e
+          IMAGE_TAG="${GITHUB_SHA}"
+          IMAGE_URI="${REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          LATEST_URI="${REGISTRY}/${ECR_REPOSITORY}:latest"
+
+          docker build \
+            -t "${IMAGE_URI}" \
+            -t "${LATEST_URI}" \
+            ./services/workflow-service/realtime
+
+          docker push "${IMAGE_URI}"
+          docker push "${LATEST_URI}"
+
+          echo "IMAGE_URI=${IMAGE_URI}" >> "$GITHUB_ENV"
+
+      - name: Deploy CloudFormation stack (network, cluster, ALB, ECS service)
+        run: |
+          set -e
+          aws cloudformation deploy \
+            --stack-name "${CLOUD_FORMATION_STACK}" \
+            --template-file infra/ecs-realtime-stack.yaml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              AppName="${APP_NAME}" \
+              ContainerImage="${IMAGE_URI}" \
+              ContainerPort=8080 \
+              DesiredCount=1 \
+              HealthCheckPath="/health" \
+            --no-fail-on-empty-changeset
+
+      - name: Output service URL
+        id: stack-output
+        run: |
+          DNS_NAME=$(aws cloudformation describe-stacks \
+            --stack-name "${CLOUD_FORMATION_STACK}" \
+            --query "Stacks[0].Outputs[?OutputKey=='LoadBalancerDNS'].OutputValue" \
+            --output text)
+          echo "SERVICE_URL=http://${DNS_NAME}" >> "$GITHUB_OUTPUT"
+          echo "Service is available at: http://${DNS_NAME}"
+
+      - name: Print service URL
+        run: |
+          echo "Realtime service endpoint URL: ${{ steps.stack-output.outputs.SERVICE_URL }}"
+
+

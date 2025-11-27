@@ -1,0 +1,3 @@
+-- Resize the vector column to match Gemini's output
+ALTER TABLE vector_records 
+ALTER COLUMN embedding TYPE vector(768);
