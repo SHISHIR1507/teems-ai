@@ -1,10 +1,10 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..clients import BrandfetchClient
+from ..clients import BrandfetchClient, DomainParsingError
 from ..config import Settings, get_settings
 from ..database import get_session
 from ..models import BrandRecord
@@ -35,33 +35,47 @@ async def fetch_brand(
     session: Annotated[AsyncSession, Depends(get_session)],
     client: Annotated[BrandfetchClient, Depends(get_brandfetch_client)],
 ) -> BrandFetchResponse:
-    domain = BrandfetchClient._extract_clean_domain(payload.url)
+    try:
+        domain = BrandfetchClient._extract_clean_domain(payload.url)
+    except DomainParsingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
 
     existing = await session.scalar(select(BrandRecord).where(BrandRecord.domain == domain))
     if existing and not payload.force_refresh:
         return BrandFetchResponse(**map_record(existing).model_dump(), source="cache")
 
-    data = await client.fetch(domain)
+    try:
+        data = await client.fetch(payload.url)
+    except Exception:
+        await session.rollback()
+        raise
 
-    if existing:
-        existing.name = data.get("name")
-        existing.description = data.get("description")
-        existing.icon = data.get("icon")
-        existing.raw = data
-    else:
-        existing = BrandRecord(
-            domain=domain,
-            name=data.get("name"),
-            description=data.get("description"),
-            icon=data.get("icon"),
-            raw=data,
-        )
-        session.add(existing)
+    try:
+        if existing:
+            existing.name = data.get("name")
+            existing.description = data.get("description")
+            existing.icon = data.get("icon")
+            existing.raw = data
+        else:
+            existing = BrandRecord(
+                domain=domain,
+                name=data.get("name"),
+                description=data.get("description"),
+                icon=data.get("icon"),
+                raw=data,
+            )
+            session.add(existing)
 
-    await session.commit()
-    await session.refresh(existing)
+        await session.commit()
+        await session.refresh(existing)
 
-    return BrandFetchResponse(**map_record(existing).model_dump(), source="external")
+        return BrandFetchResponse(**map_record(existing).model_dump(), source="external")
+    except Exception:
+        await session.rollback()
+        raise
 
 
 @router.get(
@@ -71,43 +85,58 @@ async def fetch_brand(
 )
 async def get_brand(
     domain: str,
-    refresh: bool = Query(default=False, description="Force refresh even if cached"),
     session: Annotated[AsyncSession, Depends(get_session)],
     client: Annotated[BrandfetchClient, Depends(get_brandfetch_client)],
+    refresh: bool = Query(default=False, description="Force refresh even if cached"),
 ) -> BrandRecordResponse:
-    normalized = BrandfetchClient._extract_clean_domain(domain)
+    try:
+        normalized = BrandfetchClient._extract_clean_domain(domain)
+    except DomainParsingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
     record = await session.scalar(select(BrandRecord).where(BrandRecord.domain == normalized))
 
     if record and not refresh:
         return map_record(record)
 
-    data = await client.fetch(normalized)
+    try:
+        data = await client.fetch(domain)
+    except Exception:
+        await session.rollback()
+        raise
 
-    if record:
-        record.name = data.get("name")
-        record.description = data.get("description")
-        record.icon = data.get("icon")
-        record.raw = data
-    else:
-        record = BrandRecord(
-            domain=normalized,
-            name=data.get("name"),
-            description=data.get("description"),
-            icon=data.get("icon"),
-            raw=data,
-        )
-        session.add(record)
+    try:
+        if record:
+            record.name = data.get("name")
+            record.description = data.get("description")
+            record.icon = data.get("icon")
+            record.raw = data
+        else:
+            record = BrandRecord(
+                domain=normalized,
+                name=data.get("name"),
+                description=data.get("description"),
+                icon=data.get("icon"),
+                raw=data,
+            )
+            session.add(record)
 
-    await session.commit()
-    await session.refresh(record)
-    return map_record(record)
+        await session.commit()
+        await session.refresh(record)
+        return map_record(record)
+    except Exception:
+        await session.rollback()
+        raise
 
 
 @router.get("/", response_model=list[BrandSummary], summary="List cached brand domains")
 async def list_brands(
+    session: Annotated[AsyncSession, Depends(get_session)],
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
-    session: Annotated[AsyncSession, Depends(get_session)],
 ) -> list[BrandSummary]:
     stmt = (
         select(BrandRecord)

@@ -1,3 +1,4 @@
+import json
 import re
 from typing import Any
 from urllib.parse import urlparse
@@ -49,7 +50,13 @@ class BrandfetchClient:
             )
 
         response.raise_for_status()
-        data = response.json()
+        try:
+            data = response.json()
+        except json.JSONDecodeError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Invalid JSON response from Brandfetch: {exc}",
+            ) from exc
         data["domain"] = domain
         return data
 
