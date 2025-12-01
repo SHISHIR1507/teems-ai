@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from loguru import logger
 
+from pyshared import add_env_cors
 from .config import Settings, get_settings
 from .jobs import JobManager
 
@@ -19,6 +20,11 @@ def create_app() -> FastAPI:
         docs_url="/docs",
         redoc_url="/redoc",
     )
+
+    # Apply CORS using env-driven configuration plus localhost defaults.
+    # Note: browsers don't use CORS for WebSocket upgrade itself, but this
+    # is important for any HTTP endpoints the frontend calls.
+    add_env_cors(app)
 
     job_manager = JobManager(default_duration=settings.default_job_duration_seconds)
 

@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from loguru import logger
 
+from pyshared import add_env_cors
 from .config import get_settings
 from .database import init_models
 from .routers import brands_router, health_router
@@ -16,6 +17,9 @@ def create_app() -> FastAPI:
         docs_url="/docs",
         redoc_url="/redoc",
     )
+
+    # Apply CORS using env-driven configuration plus localhost defaults.
+    add_env_cors(app)
 
     @app.on_event("startup")
     async def on_startup() -> None:
