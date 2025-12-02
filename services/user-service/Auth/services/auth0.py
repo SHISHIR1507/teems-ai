@@ -84,6 +84,20 @@ class Auth0Client:
             scope = scope_claim
 
         expires_at = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
+        
+        # EXTRACT ROLES
+        roles = payload.get("https://teems.ai/roles", [])  
+        if isinstance(roles, str):
+            roles = [roles]
+        
+        if not roles:
+            roles = ["normal_user"]  # Default until Auth0 provides real roles
+        
+        tenant_id = (
+            payload.get("https://teems.ai/tenant_id") or  # Custom namespace
+            payload.get("tenant_id") or                   # Standard claim
+            None                                          # Default to None
+        )
 
         return AuthenticatedUser(
             sub=payload["sub"],
@@ -91,6 +105,8 @@ class Auth0Client:
             name=payload.get("name"),
             permissions=list(permissions),
             scope=list(scope),
+            roles=roles,
+            tenant_id=tenant_id,
             expires_at=expires_at,
         )
 

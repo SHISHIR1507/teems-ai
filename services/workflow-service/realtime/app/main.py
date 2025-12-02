@@ -5,6 +5,37 @@ from typing import Any
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from loguru import logger
 
+import sys
+from pathlib import Path
+
+# Get paths
+current_file = Path(__file__).resolve()  # /Users/shishirsingh/teems.ai/services/user-service/Auth/app.py
+user_service_dir = current_file.parent.parent  # /Users/shishirsingh/teems.ai/services/user-service
+teems_root = user_service_dir.parent.parent  # /Users/shishirsingh/teems.ai
+shared_libs_dir = teems_root / "platform" / "shared_libs"
+
+# Add shared_libs directory to Python path
+sys.path.insert(0, str(shared_libs_dir))
+
+try:
+    # Now this should work (pyshared is in shared_libs directory)
+    from pyshared import add_env_cors
+    print(f"Imported pyshared from {shared_libs_dir}")
+except ImportError as e:
+    print(f"Failed to import pyshared: {e}")
+    print("Using fallback CORS...")
+    
+    # Fallback implementation
+    def add_env_cors(app):
+        from fastapi.middleware.cors import CORSMiddleware
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["http://localhost:3000", "http://localhost:5173", "http://localhost:8000","*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
 from .config import Settings, get_settings
 from .jobs import JobManager
 
@@ -19,6 +50,11 @@ def create_app() -> FastAPI:
         docs_url="/docs",
         redoc_url="/redoc",
     )
+
+    # Apply CORS using env-driven configuration plus localhost defaults.
+    # Note: browsers don't use CORS for WebSocket upgrade itself, but this
+    # is important for any HTTP endpoints the frontend calls.
+    add_env_cors(app)
 
     job_manager = JobManager(default_duration=settings.default_job_duration_seconds)
 

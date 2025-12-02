@@ -31,3 +31,24 @@ async def get_current_user(
             detail=str(exc),
         ) from exc
 
+def require_roles(required_roles: list[str]):
+    async def role_checker(user: AuthenticatedUser = Depends(get_current_user)):
+        user_roles = set(user.roles)
+        if not user_roles.intersection(required_roles):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient role privileges"
+            )
+        return user
+    return role_checker
+
+def require_tenant():
+    """Ensure user has a tenant_id"""
+    async def tenant_checker(user: AuthenticatedUser = Depends(get_current_user)):
+        if not user.tenant_id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User does not have a tenant assigned"
+            )
+        return user
+    return tenant_checker
