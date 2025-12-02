@@ -9,6 +9,9 @@ class AuthenticatedUser(BaseModel):
     name: str | None = None
     permissions: list[str] = Field(default_factory=list)
     scope: list[str] = Field(default_factory=list)
+    roles: list[str] = Field(default_factory=list)     # roles
+    tenant_id: str | None = Field(None, description="User's tenant identifier")    #tenant_id
+
     expires_at: datetime
 
 

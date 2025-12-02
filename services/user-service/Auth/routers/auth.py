@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from ..config import Settings, get_settings
-from ..dependencies import get_auth0_client, get_current_user
+from ..dependencies import get_auth0_client, get_current_user, require_roles
 from ..schemas.auth import (
     AuthConfigResponse,
     AuthenticatedUser,
@@ -42,4 +42,10 @@ async def logout(
 ) -> LogoutResponse:
     logout_url = client.build_logout_url(payload.return_to)
     return LogoutResponse(logout_url=logout_url)
+
+@router.get("/admin-only", summary="Admin-only test route")
+async def admin_only(
+    user: AuthenticatedUser = Depends(require_roles(["admin"]))
+):
+    return {"message": "You are an admin!", "user": user}
 
