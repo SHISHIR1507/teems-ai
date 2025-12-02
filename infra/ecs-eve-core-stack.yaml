@@ -21,14 +21,14 @@ Parameters:
     Type: String
     Default: ""
     Description: PostgreSQL database URL (e.g., postgresql://user:pass@host:5432/dbname)
-  OpenAIApiKey:
+  AIMLApiKey:
     Type: String
     Default: ""
-    Description: OpenAI API key (optional if using Gemini)
-  GeminiApiKey:
+    Description: AIML API key used for both OpenAI and Gemini-compatible models
+  AIMLBaseUrl:
     Type: String
-    Default: ""
-    Description: Google Gemini API key (optional if using OpenAI)
+    Default: "https://api.aimlapi.com/v1"
+    Description: Base URL for AIML API (OpenAI-compatible), e.g. https://api.aimlapi.com/v1
   EmbeddingProvider:
     Type: String
     Default: openai
@@ -255,10 +255,10 @@ Resources:
               Value: !Ref DefaultLLMProvider
             - Name: DEFAULT_LLM_MODEL
               Value: !Ref DefaultLLMModel
-            - Name: OPENAI_API_KEY
-              Value: !Ref OpenAIApiKey
-            - Name: GEMINI_API_KEY
-              Value: !Ref GeminiApiKey
+            - Name: AIML_API_KEY
+              Value: !Ref AIMLApiKey
+            - Name: AIML_BASE_URL
+              Value: !Ref AIMLBaseUrl
           LogConfiguration:
             LogDriver: awslogs
             Options:

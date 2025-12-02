@@ -5,8 +5,8 @@ FastAPI service that ingests tenant documents, stores embeddings in Postgres + p
 ## Features
 
 - Text and file ingestion (PDF, DOCX, TXT) with automatic chunking.
-- Embedding generation via OpenAI or Gemini; stored as vectors in Postgres.
-- RAG chat endpoint that lets callers select which LLM/model to use per request.
+- Embedding generation via models exposed through the AIML API; stored as vectors in Postgres.
+- RAG chat endpoint that lets callers select which LLM/model to use per request (OpenAI / Gemini models via AIML).
 - Health check and job-friendly responses including source metadata.
 - Dockerfile and `.env` placeholders for easy deployment.
 
@@ -26,9 +26,10 @@ uvicorn eva_core.app:create_app --factory --reload --port 8080
 
 - `DATABASE_URL` – async SQLAlchemy URL, e.g. `postgresql+asyncpg://user:pass@host:5432/eve_core`
 - `VECTOR_DIMENSION` – embedding dimension (1536 for `text-embedding-3-small`).
-- `EMBEDDING_PROVIDER` / `EMBEDDING_MODEL` – `openai` or `gemini`.
-- `OPENAI_API_KEY` / `GEMINI_API_KEY` – whichever providers you plan to use.
-- `DEFAULT_LLM_PROVIDER` / `DEFAULT_LLM_MODEL` – fallback chat model.
+- `EMBEDDING_PROVIDER` / `EMBEDDING_MODEL` – `openai` or `gemini` (both go through AIML API; the model name selects the underlying provider/model).
+- `AIML_API_KEY` – your AIML API key (see [AIML quickstart](https://docs.aimlapi.com/quickstart/setting-up)).
+- `AIML_BASE_URL` – base URL for AIML API (defaults to `https://api.aimlapi.com/v1`).
+- `DEFAULT_LLM_PROVIDER` / `DEFAULT_LLM_MODEL` – fallback chat provider/model (e.g. `openai` + `gpt-4o` or `gemini` + a Gemini model ID exposed by AIML).
 - `AUTH0_DOMAIN` – your Auth0 domain (e.g. `your-tenant.us.auth0.com`).
 - `AUTH0_AUDIENCE` – the API audience configured in Auth0.
 - `AUTH0_ALGORITHM` – JWT algorithm, usually `RS256`.

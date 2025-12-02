@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-import asyncio
 from abc import ABC, abstractmethod
-from typing import Iterable
 
 from ..config import Settings
 
@@ -16,11 +14,13 @@ class EmbeddingProvider(ABC):
         return (await self.embed([text]))[0]
 
 
-class OpenAIEmbeddingProvider(EmbeddingProvider):
-    def __init__(self, api_key: str, model: str):
+class AIMLEmbeddingProvider(EmbeddingProvider):
+    """Embedding provider that talks to AIML API via the OpenAI-compatible SDK."""
+
+    def __init__(self, api_key: str, base_url: str, model: str):
         from openai import AsyncOpenAI
 
-        self.client = AsyncOpenAI(api_key=api_key)
+        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
         self.model = model
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
@@ -28,35 +28,25 @@ class OpenAIEmbeddingProvider(EmbeddingProvider):
         return [item.embedding for item in response.data]
 
 
-class GeminiEmbeddingProvider(EmbeddingProvider):
-    def __init__(self, api_key: str, model: str):
-        import google.generativeai as genai
-
-        self.genai = genai
-        self.genai.configure(api_key=api_key)
-        self.model = model
-
-    async def embed(self, texts: list[str]) -> list[list[float]]:
-        async def _embed(text: str) -> list[float]:
-            def blocking_call() -> list[float]:
-                result = self.genai.embed_content(model=self.model, content=text)
-                return result["embedding"]
-
-            return await asyncio.to_thread(blocking_call)
-
-        return [await _embed(text) for text in texts]
-
-
 def get_embedding_provider(settings: Settings) -> EmbeddingProvider:
-    if settings.embedding_provider == "openai":
-        if not settings.openai_api_key:
-            raise ValueError("OPENAI_API_KEY is required for OpenAI embeddings")
-        return OpenAIEmbeddingProvider(settings.openai_api_key, settings.embedding_model)
+    """
+    Factory for embeddings via AIML API.
 
-    if settings.embedding_provider == "gemini":
-        if not settings.gemini_api_key:
-            raise ValueError("GEMINI_API_KEY is required for Gemini embeddings")
-        return GeminiEmbeddingProvider(settings.gemini_api_key, settings.embedding_model)
+    We keep `EMBEDDING_PROVIDER` (`openai` or `gemini`) for configuration symmetry,
+    but both paths use the AIML API key and base URL. The actual model string
+    (`EMBEDDING_MODEL`) determines which underlying model you hit (OpenAI, Gemini, etc.)
+    as documented in the AIML API docs: `https://docs.aimlapi.com/quickstart/setting-up`.
+    """
+    if settings.embedding_provider not in ("openai", "gemini"):
+        raise ValueError(f"Unsupported embedding provider: {settings.embedding_provider}")
 
-    raise ValueError(f"Unsupported embedding provider: {settings.embedding_provider}")
+    if not settings.aiml_api_key:
+        raise ValueError("AIML_API_KEY is required for embeddings via AIML API")
+
+    return AIMLEmbeddingProvider(
+        api_key=settings.aiml_api_key,
+        base_url=settings.aiml_base_url,
+        model=settings.embedding_model,
+    )
+
 

@@ -23,8 +23,13 @@ class Settings(BaseSettings):
     )
     embedding_model: str = Field(default="text-embedding-3-small", alias="EMBEDDING_MODEL")
 
-    openai_api_key: str | None = Field(default=None, alias="OPENAI_API_KEY")
-    gemini_api_key: str | None = Field(default=None, alias="GEMINI_API_KEY")
+    # AIML API configuration (used to access OpenAI / Gemini models via AIML)
+    aiml_api_key: str = Field(..., alias="AIML_API_KEY")
+    aiml_base_url: str = Field(
+        default="https://api.aimlapi.com/v1",
+        alias="AIML_BASE_URL",
+        description="Base URL for AIML API-compatible OpenAI endpoint",
+    )
 
     default_llm_provider: Literal["openai", "gemini"] = Field(
         default="openai", alias="DEFAULT_LLM_PROVIDER"

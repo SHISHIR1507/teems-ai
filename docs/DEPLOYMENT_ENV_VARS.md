@@ -32,15 +32,14 @@ These are the only secrets you mentioned you can provide:
 ### Eve Core Service (`eve-core`)
 
 **Required:**
-- `EVE_CORE_DATABASE_URL` - PostgreSQL connection string
-  - Format: `postgresql://username:password@host:5432/database_name`
+- `EVE_CORE_DATABASE_URL` - PostgreSQL connection string  
+  - Format: `postgresql://username:password@host:5432/database_name`  
   - Example: `postgresql://admin:mypass@my-rds-instance.region.rds.amazonaws.com:5432/evacore`
-
-**Optional (at least one required for embeddings/LLM):**
-- `EVE_CORE_OPENAI_API_KEY` - OpenAI API key (if using OpenAI)
-- `EVE_CORE_GEMINI_API_KEY` - Google Gemini API key (if using Gemini)
+- `EVE_CORE_AIML_API_KEY` - AIML API key, used for both OpenAI and Gemini-compatible models  
+  - See AIML docs: https://docs.aimlapi.com/quickstart/setting-up
 
 **Optional (with defaults):**
+- `EVE_CORE_AIML_BASE_URL` - Base URL for AIML API (default `https://api.aimlapi.com/v1`)
 - `EVE_CORE_EMBEDDING_PROVIDER` - `openai` or `gemini` (default: `openai`)
 - `EVE_CORE_EMBEDDING_MODEL` - Embedding model name (default: `text-embedding-3-small`)
 - `EVE_CORE_DEFAULT_LLM_PROVIDER` - `openai` or `gemini` (default: `openai`)
@@ -49,11 +48,12 @@ These are the only secrets you mentioned you can provide:
 **Example values:**
 ```
 EVE_CORE_DATABASE_URL=postgresql://user:pass@db.example.com:5432/eve_db
-EVE_CORE_OPENAI_API_KEY=sk-...
+EVE_CORE_AIML_API_KEY=aiml-...
+EVE_CORE_AIML_BASE_URL=https://api.aimlapi.com/v1
 EVE_CORE_EMBEDDING_PROVIDER=openai
 EVE_CORE_EMBEDDING_MODEL=text-embedding-3-small
 EVE_CORE_DEFAULT_LLM_PROVIDER=openai
-EVE_CORE_DEFAULT_LLM_MODEL=gpt-4o-mini
+EVE_CORE_DEFAULT_LLM_MODEL=gpt-4o
 ```
 
 ---
@@ -232,7 +232,7 @@ Before pushing to `main`, ensure you have:
 - [ ] `AWS_SECRET_ACCESS_KEY`
 - [ ] `AWS_REGION`
 - [ ] `AWS_ACCOUNT_ID`
-- [ ] `EVE_CORE_DATABASE_URL` (and optionally `EVE_CORE_OPENAI_API_KEY` or `EVE_CORE_GEMINI_API_KEY`)
+- [ ] `EVE_CORE_DATABASE_URL` and `EVE_CORE_AIML_API_KEY` (and optionally `EVE_CORE_AIML_BASE_URL`)
 - [ ] `AUTH_AUTH0_DOMAIN`, `AUTH_AUTH0_AUDIENCE`, `AUTH_AUTH0_CLIENT_ID`, `AUTH_AUTH0_CLIENT_SECRET`, `AUTH_AUTH0_MANAGEMENT_AUDIENCE`
 - [ ] `BRANDFETCH_API_KEY` and `BRANDFETCH_DATABASE_URL`
 - [ ] (Realtime service needs no secrets)
