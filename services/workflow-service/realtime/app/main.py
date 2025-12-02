@@ -8,11 +8,19 @@ from loguru import logger
 import sys
 from pathlib import Path
 
-# Get paths
-current_file = Path(__file__).resolve()  # /Users/shishirsingh/teems.ai/services/user-service/Auth/app.py
-user_service_dir = current_file.parent.parent  # /Users/shishirsingh/teems.ai/services/user-service
-teems_root = user_service_dir.parent.parent  # /Users/shishirsingh/teems.ai
-shared_libs_dir = teems_root / "platform" / "shared_libs"
+# Get paths - dynamically find repo root by looking for platform/shared_libs
+current_file = Path(__file__).resolve()  # services/workflow-service/realtime/app/main.py
+current_dir = current_file.parent
+# Traverse up until we find platform/shared_libs
+while current_dir != current_dir.parent:  # Stop at filesystem root
+    shared_libs_candidate = current_dir / "platform" / "shared_libs"
+    if shared_libs_candidate.exists():
+        shared_libs_dir = shared_libs_candidate
+        break
+    current_dir = current_dir.parent
+else:
+    # Fallback: assume we're 5 levels deep from root
+    shared_libs_dir = current_file.parent.parent.parent.parent.parent / "platform" / "shared_libs"
 
 # Add shared_libs directory to Python path
 sys.path.insert(0, str(shared_libs_dir))
@@ -30,7 +38,7 @@ except ImportError as e:
         from fastapi.middleware.cors import CORSMiddleware
         app.add_middleware(
             CORSMiddleware,
-            allow_origins=["http://localhost:3000", "http://localhost:5173", "http://localhost:8000","*", "https://teems-web-app.vercel.app"],
+            allow_origins=["http://localhost:3000", "http://localhost:5173", "http://localhost:8000", "https://teems-web-app.vercel.app"],
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
