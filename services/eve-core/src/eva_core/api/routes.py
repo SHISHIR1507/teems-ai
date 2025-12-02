@@ -3,6 +3,7 @@ import json
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..auth import AuthenticatedUser, require_tenant
 from ..config import Settings
 from ..database.session import get_session
 from ..dependencies import get_embedding_dep, get_llm_factory_dep, get_settings_dep
@@ -32,23 +33,26 @@ async def health() -> dict[str, str]:
 @router.post("/v1/rag/ingest/text", response_model=DocumentIngestResponse, tags=["ingest"])
 async def ingest_text(
     payload: DocumentIngestRequest,
+    user: AuthenticatedUser = Depends(require_tenant()),
     rag_service: RAGService = Depends(get_rag_service),
 ) -> DocumentIngestResponse:
+    # Enforce tenant_id from the authenticated user, not from the client
+    payload.tenant_id = user.tenant_id  # type: ignore[assignment]
     return await rag_service.ingest_text(payload)
 
 
 @router.post("/v1/rag/ingest/file", response_model=DocumentIngestResponse, tags=["ingest"])
 async def ingest_file(
-    tenant_id: str = Form(...),
     title: str | None = Form(default=None),
     metadata: str | None = Form(default=None, description="JSON metadata"),
     file: UploadFile = File(...),
+    user: AuthenticatedUser = Depends(require_tenant()),
     rag_service: RAGService = Depends(get_rag_service),
 ) -> DocumentIngestResponse:
     raw_text = await extract_text_from_upload(file)
     metadata_dict = json.loads(metadata) if metadata else {}
     payload = DocumentIngestRequest(
-        tenant_id=tenant_id,
+        tenant_id=user.tenant_id or "",  # validated by require_tenant
         title=title or file.filename,
         text=raw_text,
         metadata=metadata_dict,
@@ -59,7 +63,10 @@ async def ingest_file(
 @router.post("/v1/rag/chat", tags=["chat"])
 async def chat(
     payload: ChatRequest,
+    user: AuthenticatedUser = Depends(require_tenant()),
     rag_service: RAGService = Depends(get_rag_service),
 ):
+    # Enforce tenant_id from the authenticated user
+    payload.tenant_id = user.tenant_id or ""  # type: ignore[assignment]
     return await rag_service.chat(payload)
 

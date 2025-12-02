@@ -29,13 +29,18 @@ uvicorn eva_core.app:create_app --factory --reload --port 8080
 - `EMBEDDING_PROVIDER` / `EMBEDDING_MODEL` – `openai` or `gemini`.
 - `OPENAI_API_KEY` / `GEMINI_API_KEY` – whichever providers you plan to use.
 - `DEFAULT_LLM_PROVIDER` / `DEFAULT_LLM_MODEL` – fallback chat model.
+- `AUTH0_DOMAIN` – your Auth0 domain (e.g. `your-tenant.us.auth0.com`).
+- `AUTH0_AUDIENCE` – the API audience configured in Auth0.
+- `AUTH0_ALGORITHM` – JWT algorithm, usually `RS256`.
 
 ## API Surface
 
-- `GET /health` – readiness/liveness probe.
-- `POST /v1/rag/ingest/text` – body `{ tenant_id, text, title?, metadata? }`.
-- `POST /v1/rag/ingest/file` – multipart upload (`tenant_id`, optional `title/metadata`, file field `file`).
-- `POST /v1/rag/chat` – `{ tenant_id, query, chat_history?, llm_provider?, llm_model?, top_k? }`.
+- `GET /health` – readiness/liveness probe (no auth).
+- `POST /v1/rag/ingest/text` – authenticated; JSON body `{ text, title?, metadata? }`. The `tenant_id` is derived from the authenticated user's token.
+- `POST /v1/rag/ingest/file` – authenticated; multipart upload (optional `title/metadata`, file field `file`). The `tenant_id` is derived from the authenticated user's token.
+- `POST /v1/rag/chat` – authenticated; JSON body `{ query, chat_history?, llm_provider?, llm_model?, top_k? }`. The `tenant_id` is derived from the authenticated user's token.
+
+All RAG endpoints require an `Authorization: Bearer <access_token>` header containing a valid Auth0 access token. The token must include a `tenant_id` claim (preferably in the `https://teems.ai/tenant_id` namespace); Eve Core uses this claim to scope all document storage and retrieval.
 
 Chat responses include `answer`, `sources[]`, `provider`, `model`, and latency. Sources provide chunk content plus document metadata for UI citation.
 
@@ -58,8 +63,9 @@ docker run --env-file .env -p 8080:8080 eve-core
 
 ## Testing the Chat Endpoint
 
-1. Ingest a sample document via `/v1/rag/ingest/text`.
-2. Hit `/v1/rag/chat` with `{ "tenant_id": "demo", "query": "..." }`.
-3. Optionally set `llm_provider` to `gemini` or `openai` and override `llm_model`.
+1. Obtain an Auth0 access token that includes a `tenant_id` claim.
+2. Ingest a sample document via `/v1/rag/ingest/text` with the `Authorization` header set.
+3. Hit `/v1/rag/chat` with `{ "query": "..." }` and the same `Authorization` header.
+4. Optionally set `llm_provider` to `gemini` or `openai` and override `llm_model`.
 
-The service will retrieve the top chunks from Postgres, feed them plus chat history into the requested model, and stream the answer back with references.
+The service will retrieve the top chunks for the authenticated user's tenant from Postgres, feed them plus chat history into the requested model, and return the answer with references.
