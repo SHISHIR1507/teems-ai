@@ -43,6 +43,22 @@ Parameters:
   DefaultLLMModel:
     Type: String
     Default: gpt-4o-mini
+  Auth0Domain:
+    Type: String
+    Default: ""
+    Description: Auth0 domain (e.g., your-tenant.us.auth0.com)
+  Auth0Audience:
+    Type: String
+    Default: ""
+    Description: Auth0 API audience/identifier
+  Auth0Algorithm:
+    Type: String
+    Default: "RS256"
+    Description: JWT algorithm for Auth0 token validation
+  VectorDimension:
+    Type: Number
+    Default: 1536
+    Description: Embedding vector dimension
 
 Resources:
   VPC:
@@ -247,6 +263,10 @@ Resources:
               Value: info
             - Name: DATABASE_URL
               Value: !Ref DatabaseUrl
+            - Name: AIML_API_KEY
+              Value: !Ref AIMLApiKey
+            - Name: AIML_BASE_URL
+              Value: !Ref AIMLBaseUrl
             - Name: EMBEDDING_PROVIDER
               Value: !Ref EmbeddingProvider
             - Name: EMBEDDING_MODEL
@@ -255,10 +275,14 @@ Resources:
               Value: !Ref DefaultLLMProvider
             - Name: DEFAULT_LLM_MODEL
               Value: !Ref DefaultLLMModel
-            - Name: AIML_API_KEY
-              Value: !Ref AIMLApiKey
-            - Name: AIML_BASE_URL
-              Value: !Ref AIMLBaseUrl
+            - Name: VECTOR_DIMENSION
+              Value: !Ref VectorDimension
+            - Name: AUTH0_DOMAIN
+              Value: !Ref Auth0Domain
+            - Name: AUTH0_AUDIENCE
+              Value: !Ref Auth0Audience
+            - Name: AUTH0_ALGORITHM
+              Value: !Ref Auth0Algorithm
           LogConfiguration:
             LogDriver: awslogs
             Options:

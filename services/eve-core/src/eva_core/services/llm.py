@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import asyncio
 from abc import ABC, abstractmethod
-from datetime import datetime
-from typing import Any
 
 from ..config import Settings
 
@@ -14,11 +11,13 @@ class LLMClient(ABC):
         ...
 
 
-class OpenAILLMClient(LLMClient):
-    def __init__(self, api_key: str):
+class AIMLLLMClient(LLMClient):
+    """LLM client that talks to AIML API via the OpenAI-compatible SDK."""
+
+    def __init__(self, api_key: str, base_url: str):
         from openai import AsyncOpenAI
 
-        self.client = AsyncOpenAI(api_key=api_key)
+        self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
 
     async def generate(self, messages: list[dict[str, str]], model: str) -> str:
         response = await self.client.chat.completions.create(
@@ -29,29 +28,6 @@ class OpenAILLMClient(LLMClient):
         return response.choices[0].message.content or ""
 
 
-class GeminiLLMClient(LLMClient):
-    def __init__(self, api_key: str):
-        import google.generativeai as genai
-
-        self.genai = genai
-        self.genai.configure(api_key=api_key)
-
-    async def generate(self, messages: list[dict[str, str]], model: str) -> str:
-        def blocking_call() -> str:
-            # Gemini expects a flat prompt. We'll concatenate messages.
-            prompt_segments = []
-            for message in messages:
-                role = message["role"].upper()
-                prompt_segments.append(f"{role}: {message['content']}")
-            prompt = "\n".join(prompt_segments)
-
-            llm = self.genai.GenerativeModel(model)
-            response = llm.generate_content(prompt)
-            return response.text or ""
-
-        return await asyncio.to_thread(blocking_call)
-
-
 class LLMFactory:
     def __init__(self, settings: Settings):
         self.settings = settings
@@ -59,15 +35,18 @@ class LLMFactory:
 
     def get_client(self, provider: str) -> LLMClient:
         if provider not in self.clients:
-            if provider == "openai":
-                if not self.settings.openai_api_key:
-                    raise ValueError("OPENAI_API_KEY is required for OpenAI provider")
-                self.clients[provider] = OpenAILLMClient(self.settings.openai_api_key)
-            elif provider == "gemini":
-                if not self.settings.gemini_api_key:
-                    raise ValueError("GEMINI_API_KEY is required for Gemini provider")
-                self.clients[provider] = GeminiLLMClient(self.settings.gemini_api_key)
-            else:
+            if provider not in ("openai", "gemini"):
                 raise ValueError(f"Unsupported LLM provider: {provider}")
+
+            if not self.settings.aiml_api_key:
+                raise ValueError("AIML_API_KEY is required for LLM provider via AIML API")
+
+            # Both OpenAI and Gemini models are accessed via the AIML API using the same
+            # OpenAI-compatible client; the `model` name selects the underlying model.
+            self.clients[provider] = AIMLLLMClient(
+                api_key=self.settings.aiml_api_key,
+                base_url=self.settings.aiml_base_url,
+            )
+
         return self.clients[provider]
 
