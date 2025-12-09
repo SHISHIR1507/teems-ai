@@ -1,14 +1,19 @@
 # Eve Core – RAG Chat Service
 
-FastAPI service that ingests tenant documents, stores embeddings in Postgres + pgvector, and answers chat questions using retrieval augmented generation (RAG) with selectable LLM providers (OpenAI or Gemini).
+FastAPI service that ingests tenant documents(including scanned PDFs and images via OCR), stores embeddings in Postgres + pgvector, and answers chat questions using retrieval augmented generation (RAG) with selectable LLM providers (OpenAI or Gemini).
 
 ## Features
 
 - Text and file ingestion (PDF, DOCX, TXT) with automatic chunking.
+- Advanced ingestion with automatic OCR for scanned PDFs and images.
+- Intelligent detection: Auto-detects scanned vs. digital PDFs.
+- Multi-format support: PNG, JPG, JPEG, PDF, DOCX, TXT.
+- Used Docling for table extraction and structure preservation (preserves tables as HTML)
 - Embedding generation via models exposed through the AIML API; stored as vectors in Postgres.
 - RAG chat endpoint that lets callers select which LLM/model to use per request (OpenAI / Gemini models via AIML).
 - Health check and job-friendly responses including source metadata.
 - Dockerfile and `.env` placeholders for easy deployment.
+
 
 ## Quickstart
 
@@ -33,6 +38,9 @@ uvicorn eva_core.app:create_app --factory --reload --port 8080
 - `AUTH0_DOMAIN` – your Auth0 domain (e.g. `your-tenant.us.auth0.com`).
 - `AUTH0_AUDIENCE` – the API audience configured in Auth0.
 - `AUTH0_ALGORITHM` – JWT algorithm, usually `RS256`.
+- `GEMINI_API_KEY` – (Optional) Google Gemini API key for diagram description.
+
+
 
 ## API Surface
 
@@ -66,7 +74,8 @@ docker run --env-file .env -p 8080:8080 eve-core
 
 1. Obtain an Auth0 access token that includes a `tenant_id` claim.
 2. Ingest a sample document via `/v1/rag/ingest/text` with the `Authorization` header set.
-3. Hit `/v1/rag/chat` with `{ "query": "..." }` and the same `Authorization` header.
-4. Optionally set `llm_provider` to `gemini` or `openai` and override `llm_model`.
+3. Hit `/v1/rag/chat` with `{ "query": "..." }` and the same `Authorization` header. The llm_model field is required in practice. You must specify a valid model name(e.g., gpt-3.5-turbo, gpt-4o-mini, gemini-2.0-flash).
+4. Optionally set llm_provider to gemini or openai to override the default provider.
+
 
 The service will retrieve the top chunks for the authenticated user's tenant from Postgres, feed them plus chat history into the requested model, and return the answer with references.
