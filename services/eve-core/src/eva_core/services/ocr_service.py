@@ -1,16 +1,14 @@
 
 import io
 import torch
-import fitz  # PyMuPDF
+import fitz
 from PIL import Image
 from fastapi import UploadFile
 from transformers import AutoProcessor, AutoModelForImageTextToText
 import google.generativeai as genai
 
-# ========== SUNIL'S ORIGINAL CODE (MINIMAL CHANGES) ==========
 
 def load_ocr():
-    """Sunil's original function"""
     device = "cuda" if torch.cuda.is_available() else "cpu"
     dtype = torch.bfloat16 if device == "cuda" else torch.float32
 
@@ -27,7 +25,6 @@ def load_ocr():
 
 
 def load_vision_model(api_key: str = None):
-    """Sunil's function - just need API key parameter"""
     if not api_key:
         print("Gemini API key missing — scene description disabled")
         return None
@@ -38,7 +35,7 @@ def load_vision_model(api_key: str = None):
 
 
 def pdf_to_images(pdf_bytes: bytes, dpi=300):
-    """Sunil's function - takes bytes instead of file path"""
+    """Converts PDF bytes to a list of images at the specified DPI."""
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     pages = []
 
@@ -55,7 +52,6 @@ def pdf_to_images(pdf_bytes: bytes, dpi=300):
 
 
 def ocr_image(image, processor, model, device):
-    """Sunil's original function - NO CHANGES"""
     inputs = processor(images=image, return_tensors="pt").to(device)
 
     generated_ids = model.generate(
@@ -72,7 +68,6 @@ def ocr_image(image, processor, model, device):
 
 
 def describe_scene(image, gemini_model):
-    """Sunil's original function - NO CHANGES"""
     if not gemini_model:
         return ""
 
@@ -85,10 +80,8 @@ def describe_scene(image, gemini_model):
     return response.text.strip()
 
 
-# ========== SIMPLE WRAPPERS FOR UploadFile ==========
 
 async def process_uploaded_image(file: UploadFile, gemini_api_key: str = None) -> str:
-    """Simple wrapper for Sunil's process_image()"""
     contents = await file.read()
     
     # Load models
@@ -98,7 +91,6 @@ async def process_uploaded_image(file: UploadFile, gemini_api_key: str = None) -
     # Convert to image
     img = Image.open(io.BytesIO(contents)).convert("RGB")
     
-    # Use Sunil's functions
     text = ocr_image(img, processor, model, device)
     scene = describe_scene(img, gemini_model)
     
@@ -108,7 +100,7 @@ async def process_uploaded_image(file: UploadFile, gemini_api_key: str = None) -
 
 
 async def process_uploaded_pdf(file: UploadFile, gemini_api_key: str = None) -> str:
-    """Simple wrapper for Sunil's process_pdf()"""
+    """Converts PDF bytes to a list of images at the specified DPI."""
     contents = await file.read()
     
     # Load models

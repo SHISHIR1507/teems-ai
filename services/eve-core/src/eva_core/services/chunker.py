@@ -123,14 +123,7 @@ def chunk_text_token_based(
 
 
 def chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
-    """
-    Now uses token-based chunking instead of character-based.
     
-    Converts character settings to token settings:
-    - chunk_size (characters) → chunk_tokens (approx chars/4)
-    - overlap (characters) → overlap_tokens (approx chars/4)
-    
-    """
     chunk_tokens = max(100, chunk_size // 4)  # Minimum 100 tokens
     overlap_tokens = max(20, overlap // 4)    # Minimum 20 tokens
     
@@ -172,7 +165,6 @@ async def extract_text_from_upload(file: UploadFile) -> str:
         text = load_document_text(temp_path)
         cleaned = "\n".join(line.rstrip() for line in text.splitlines())
         
-        # For PDFs: Check if scanned 
         if filename.endswith('.pdf') and len(cleaned.strip()) < 200:
             file.file = io.BytesIO(contents)
             from .ocr_service import process_uploaded_pdf
@@ -221,7 +213,6 @@ def ingest_and_chunk(
     
     raw_text = load_document_text(path)
     
-    # Clean text
     cleaned = "\n".join(line.rstrip() for line in raw_text.splitlines())
 
     chunks = chunk_text_token_based(
