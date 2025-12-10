@@ -40,7 +40,8 @@ except ImportError as e:
         )
 
 from .config import get_settings
-from .routers import auth_router, health_router
+from .database.session import init_db  
+from .routers import auth_router, health_router, preferences
 
 
 def create_app() -> FastAPI:
@@ -59,5 +60,16 @@ def create_app() -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(auth_router)
+    app.include_router(preferences.router)
 
+    @app.on_event("startup")
+    async def startup_event():
+        """Initialize database on startup"""
+        try:
+            print("STARTUP: Calling init_db()...")  
+            await init_db()
+            print("STARTUP: init_db() succeeded!")   
+        except Exception as e:
+            print(f"STARTUP ERROR: {e}")  
+            logger.error(f"Failed to initialize database: {e}")
     return app

@@ -16,7 +16,10 @@ dependencies = [
     "pydantic>=2.7,<3.0",
     "pydantic-settings>=2.3,<3.0",
     "python-dotenv>=1.0,<2.0",
-    "loguru>=0.7,<0.8"
+    "loguru>=0.7,<0.8",
+    "sqlalchemy>=2.0,<2.1",
+    "asyncpg>=0.29,<0.30",
+    "greenlet>=3.3,<4.0" 
 ]
 
 [project.optional-dependencies]

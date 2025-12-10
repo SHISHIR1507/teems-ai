@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     auth0_algorithm: str = "RS256"
     auth0_management_audience: str
 
+    database_url: str
+
     postgres_host: str | None = None
     postgres_port: int | None = 5432
     postgres_db: str | None = None
@@ -39,3 +41,4 @@ def get_settings() -> Settings:
         print("Warning: no .env file detected. Using shell environment variables.")  # noqa: T201
     return Settings()  # type: ignore[arg-type]
 
+get_settings.cache_clear()
