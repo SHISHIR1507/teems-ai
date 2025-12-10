@@ -1,14 +1,14 @@
-name: Deploy Eve Core to ECS
+name: Deploy Agent Manager to ECS
 
 on:
   push:
     branches:
       - main
     paths:
-      - 'services/eve-core/**'
-      - 'infra/ecs-eve-core-stack.yaml'
-      - '.github/workflows/deploy-eve-core-ecs.yml'
-  workflow_dispatch:  # Allow manual trigger
+      - 'services/agent-manager/**'
+      - 'infra/ecs-agent-manager-stack.yaml'
+      - '.github/workflows/deploy-agent-manager-ecs.yml'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -17,9 +17,9 @@ permissions:
 env:
   AWS_REGION: ${{ secrets.AWS_REGION }}
   AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-  APP_NAME: teems-eve-core
-  ECR_REPOSITORY: teems-eve-core
-  CLOUD_FORMATION_STACK: teems-eve-core-ecs
+  APP_NAME: teems-agent-manager
+  ECR_REPOSITORY: teems-agent-manager
+  CLOUD_FORMATION_STACK: teems-agent-manager-ecs
 
 jobs:
   deploy:
@@ -60,7 +60,7 @@ jobs:
           docker build \
             -t "${IMAGE_URI}" \
             -t "${LATEST_URI}" \
-            ./services/eve-core
+            ./services/agent-manager
 
           docker push "${IMAGE_URI}"
           docker push "${LATEST_URI}"
@@ -77,39 +77,37 @@ jobs:
               --stack-name "${CLOUD_FORMATION_STACK}" \
               --query "Stacks[0].StackStatus" \
               --output text)
-            
+
             echo "Current stack status: ${STACK_STATUS}"
-            
-            # Wait if stack is in progress (with timeout)
+
             if [[ "${STACK_STATUS}" == *"IN_PROGRESS"* ]]; then
               echo "Stack is ${STACK_STATUS}, waiting for completion (max 20 minutes)..."
-              MAX_WAIT=1200  # 20 minutes in seconds
+              MAX_WAIT=1200
               ELAPSED=0
-              POLL_INTERVAL=30  # Check every 30 seconds
-              
+              POLL_INTERVAL=30
+
               while [ $ELAPSED -lt $MAX_WAIT ]; do
                 CURRENT_STATUS=$(aws cloudformation describe-stacks \
                   --stack-name "${CLOUD_FORMATION_STACK}" \
                   --query "Stacks[0].StackStatus" \
                   --output text 2>/dev/null || echo "UNKNOWN")
-                
+
                 echo "  [${ELAPSED}s] Stack status: ${CURRENT_STATUS}"
-                
+
                 if [[ ! "${CURRENT_STATUS}" == *"IN_PROGRESS"* ]]; then
                   echo "Stack reached stable state: ${CURRENT_STATUS}"
                   break
                 fi
-                
+
                 sleep $POLL_INTERVAL
                 ELAPSED=$((ELAPSED + POLL_INTERVAL))
               done
-              
-              # Final status check
+
               FINAL_STATUS=$(aws cloudformation describe-stacks \
                 --stack-name "${CLOUD_FORMATION_STACK}" \
                 --query "Stacks[0].StackStatus" \
                 --output text)
-              
+
               if [[ "${FINAL_STATUS}" == *"IN_PROGRESS"* ]]; then
                 echo "Warning: Stack still in progress after timeout. Proceeding anyway..."
               else
@@ -122,42 +120,28 @@ jobs:
             echo "Stack does not exist yet, will create new stack"
           fi
 
-      - name: Deploy CloudFormation stack (network, cluster, ALB, ECS service)
+      - name: Deploy CloudFormation stack
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL || secrets.EVE_CORE_DATABASE_URL }}
-          AIML_API_KEY: ${{ secrets.AIML_API_KEY || secrets.EVE_CORE_AIML_API_KEY }}
-          AIML_BASE_URL: ${{ secrets.AIML_BASE_URL || secrets.EVE_CORE_AIML_BASE_URL }}
-          AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN || secrets.EVE_CORE_AUTH0_DOMAIN }}
-          AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE || secrets.EVE_CORE_AUTH0_AUDIENCE }}
-          AUTH0_ALGORITHM: ${{ secrets.AUTH0_ALGORITHM || secrets.EVE_CORE_AUTH0_ALGORITHM }}
-          EMBEDDING_PROVIDER: ${{ secrets.EMBEDDING_PROVIDER || secrets.EVE_CORE_EMBEDDING_PROVIDER }}
-          EMBEDDING_MODEL: ${{ secrets.EMBEDDING_MODEL || secrets.EVE_CORE_EMBEDDING_MODEL }}
-          DEFAULT_LLM_PROVIDER: ${{ secrets.DEFAULT_LLM_PROVIDER || secrets.EVE_CORE_DEFAULT_LLM_PROVIDER }}
-          DEFAULT_LLM_MODEL: ${{ secrets.DEFAULT_LLM_MODEL || secrets.EVE_CORE_DEFAULT_LLM_MODEL }}
-          VECTOR_DIMENSION: ${{ secrets.VECTOR_DIMENSION || secrets.EVE_CORE_VECTOR_DIMENSION }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL || secrets.AGENT_MANAGER_DATABASE_URL }}
+          AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN || secrets.AGENT_MANAGER_AUTH0_DOMAIN }}
+          AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE || secrets.AGENT_MANAGER_AUTH0_AUDIENCE }}
+          AUTH0_ALGORITHM: ${{ secrets.AUTH0_ALGORITHM || secrets.AGENT_MANAGER_AUTH0_ALGORITHM }}
         run: |
           set -e
           aws cloudformation deploy \
             --stack-name "${CLOUD_FORMATION_STACK}" \
-            --template-file infra/ecs-eve-core-stack.yaml \
+            --template-file infra/ecs-agent-manager-stack.yaml \
             --capabilities CAPABILITY_NAMED_IAM \
             --parameter-overrides \
               AppName="${APP_NAME}" \
               ContainerImage="${IMAGE_URI}" \
               ContainerPort=8080 \
-              DesiredCount=2 \
-              HealthCheckPath="/docs" \
+              DesiredCount=1 \
+              HealthCheckPath="/health" \
               DatabaseUrl="${DATABASE_URL:-}" \
-              AIMLApiKey="${AIML_API_KEY:-}" \
-              AIMLBaseUrl="${AIML_BASE_URL:-https://api.aimlapi.com/v1}" \
               Auth0Domain="${AUTH0_DOMAIN:-}" \
               Auth0Audience="${AUTH0_AUDIENCE:-}" \
               Auth0Algorithm="${AUTH0_ALGORITHM:-RS256}" \
-              EmbeddingProvider="${EMBEDDING_PROVIDER:-openai}" \
-              EmbeddingModel="${EMBEDDING_MODEL:-text-embedding-3-small}" \
-              DefaultLLMProvider="${DEFAULT_LLM_PROVIDER:-openai}" \
-              DefaultLLMModel="${DEFAULT_LLM_MODEL:-gpt-4o-mini}" \
-              VectorDimension="${VECTOR_DIMENSION:-1536}" \
             --no-fail-on-empty-changeset
 
       - name: Output service URL
@@ -172,6 +156,5 @@ jobs:
 
       - name: Print service URL
         run: |
-          echo "Eve Core endpoint URL: ${{ steps.stack-output.outputs.SERVICE_URL }}"
-
+          echo "Agent Manager endpoint URL: ${{ steps.stack-output.outputs.SERVICE_URL }}"
 

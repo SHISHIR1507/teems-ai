@@ -1,29 +1,16 @@
 from fastapi import Depends
+from redis.asyncio import Redis
 
 from .config import Settings, get_settings
-from .database.session import get_session
-from redis.asyncio import Redis
-from .services.embedding import EmbeddingProvider, get_embedding_provider
-from .services.llm import LLMFactory
 from .events import EventPublisher
 
 _settings = get_settings()
-_embedder = get_embedding_provider(_settings)
-_llm_factory = LLMFactory(_settings)
 _redis: Redis | None = None
 _publisher: EventPublisher | None = None
 
 
 def get_settings_dep() -> Settings:
     return _settings
-
-
-def get_embedding_dep() -> EmbeddingProvider:
-    return _embedder
-
-
-def get_llm_factory_dep() -> LLMFactory:
-    return _llm_factory
 
 
 async def get_redis_dep() -> Redis | None:
@@ -41,4 +28,5 @@ async def get_publisher_dep(redis: Redis | None = Depends(get_redis_dep)) -> Eve
     if _publisher is None:
         _publisher = EventPublisher(redis)
     return _publisher
+
 

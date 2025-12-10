@@ -1,6 +1,6 @@
 # User Service (Auth0)
 
-FastAPI microservice that sits behind Auth0 and exposes lightweight user-facing endpoints (profile lookup, logout helper, config bootstrap) for the Teems platform.
+FastAPI microservice that sits behind Auth0 and exposes user-facing endpoints (profile lookup, logout helper, config bootstrap) plus persisted user preferences for the Teems platform.
 
 ## Features
 
@@ -44,8 +44,9 @@ The container uses the same environment variables defined in `.env`. Cloud deplo
 
 ## Testing tokens
 
-- Use Auth0's API explorer or Postman with a SPA/regular web app client to obtain an access token for the configured audience.
-- Call `GET /auth/me` with `Authorization: Bearer <token>` and expect a JSON profile.
+- Use Auth0's API explorer or Postman with a SPA/regular web app client to obtain an access token for the configured audience (must contain `tenant_id` claim).
+- Call `GET /auth/me` with `Authorization: Bearer <token>` and expect a JSON profile; tenant is derived from token.
+- Preferences: `GET /user/preferences` and `PUT /user/preferences` (body `notification_frequency`, `notification_channels[]`). User is auto-created/updated on first call; tenant/user derived from token.
 
 ## Folder structure
 

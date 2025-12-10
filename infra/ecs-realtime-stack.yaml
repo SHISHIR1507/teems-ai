@@ -17,6 +17,22 @@ Parameters:
   HealthCheckPath:
     Type: String
     Default: /health
+  RedisUrl:
+    Type: String
+    Default: ""
+    Description: Redis connection string
+  Auth0Domain:
+    Type: String
+    Default: ""
+    Description: Auth0 domain
+  Auth0Audience:
+    Type: String
+    Default: ""
+    Description: Auth0 API audience
+  Auth0Algorithm:
+    Type: String
+    Default: RS256
+    Description: Auth0 token algorithm
 
 Resources:
   VPC:
@@ -223,6 +239,14 @@ Resources:
               Value: "3.0"
             - Name: MAX_CONNECTIONS
               Value: "500"
+            - Name: REDIS_URL
+              Value: !Ref RedisUrl
+            - Name: AUTH0_DOMAIN
+              Value: !Ref Auth0Domain
+            - Name: AUTH0_AUDIENCE
+              Value: !Ref Auth0Audience
+            - Name: AUTH0_ALGORITHM
+              Value: !Ref Auth0Algorithm
           LogConfiguration:
             LogDriver: awslogs
             Options:

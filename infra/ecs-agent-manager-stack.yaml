@@ -1,13 +1,13 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: ECS Fargate service with ALB for Brandfetch workflow service
+Description: ECS Fargate service with ALB for Agent Manager
 
 Parameters:
   AppName:
     Type: String
-    Default: teems-brandfetch
+    Default: teems-agent-manager
   ContainerImage:
     Type: String
-    Description: Full ECR image URI (including tag) for Brandfetch service
+    Description: Full ECR image URI (including tag) for Agent Manager
   ContainerPort:
     Type: Number
     Default: 8080
@@ -17,10 +17,6 @@ Parameters:
   HealthCheckPath:
     Type: String
     Default: /health
-  BrandfetchApiKey:
-    Type: String
-    Default: ""
-    Description: Brandfetch API key
   DatabaseUrl:
     Type: String
     Default: ""
@@ -28,7 +24,7 @@ Parameters:
   Auth0Domain:
     Type: String
     Default: ""
-    Description: Auth0 domain
+    Description: Auth0 domain (e.g., your-tenant.us.auth0.com)
   Auth0Audience:
     Type: String
     Default: ""
@@ -36,13 +32,13 @@ Parameters:
   Auth0Algorithm:
     Type: String
     Default: RS256
-    Description: Auth0 token algorithm
+    Description: Auth0 token signing algorithm
 
 Resources:
   VPC:
     Type: AWS::EC2::VPC
     Properties:
-      CidrBlock: 10.2.0.0/16
+      CidrBlock: 10.7.0.0/16
       EnableDnsSupport: true
       EnableDnsHostnames: true
       Tags:
@@ -54,7 +50,7 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       AvailabilityZone: !Select [0, !GetAZs ""]
-      CidrBlock: 10.2.1.0/24
+      CidrBlock: 10.7.1.0/24
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
@@ -65,7 +61,7 @@ Resources:
     Properties:
       VpcId: !Ref VPC
       AvailabilityZone: !Select [1, !GetAZs ""]
-      CidrBlock: 10.2.2.0/24
+      CidrBlock: 10.7.2.0/24
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
@@ -239,8 +235,6 @@ Resources:
               Value: production
             - Name: LOG_LEVEL
               Value: info
-            - Name: BRANDFETCH_API_KEY
-              Value: !Ref BrandfetchApiKey
             - Name: DATABASE_URL
               Value: !Ref DatabaseUrl
             - Name: AUTH0_DOMAIN

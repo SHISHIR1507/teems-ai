@@ -6,12 +6,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth import AuthenticatedUser, require_tenant
 from ..config import Settings
 from ..database.session import get_session
-from ..dependencies import get_embedding_dep, get_llm_factory_dep, get_settings_dep
+from ..dependencies import (
+    get_embedding_dep,
+    get_llm_factory_dep,
+    get_publisher_dep,
+    get_settings_dep,
+)
 from ..schemas.rag import ChatRequest, DocumentIngestRequest, DocumentIngestResponse
 from ..services.chunker import extract_text_from_upload
 from ..services.embedding import EmbeddingProvider
 from ..services.llm import LLMFactory
 from ..services.rag import RAGService
+from ..events import EventPublisher
 
 router = APIRouter()
 
@@ -21,8 +27,9 @@ def get_rag_service(
     settings: Settings = Depends(get_settings_dep),
     embedder: EmbeddingProvider = Depends(get_embedding_dep),
     llm_factory: LLMFactory = Depends(get_llm_factory_dep),
+    publisher: EventPublisher = Depends(get_publisher_dep),
 ) -> RAGService:
-    return RAGService(session, settings, embedder, llm_factory)
+    return RAGService(session, settings, embedder, llm_factory, publisher)
 
 
 @router.get("/health", tags=["health"])

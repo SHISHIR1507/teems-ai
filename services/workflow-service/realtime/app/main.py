@@ -1,51 +1,75 @@
 from __future__ import annotations
 
-from typing import Any
-
-from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from loguru import logger
-
+import asyncio
+import contextlib
+import json
 import sys
 from pathlib import Path
+from typing import Any, Optional
 
-# Get paths - dynamically find repo root by looking for platform/shared_libs
-current_file = Path(__file__).resolve()  # services/workflow-service/realtime/app/main.py
+from fastapi import Depends, FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import JSONResponse
+from loguru import logger
+from redis.asyncio import Redis
+
+current_file = Path(__file__).resolve()
 current_dir = current_file.parent
-# Traverse up until we find platform/shared_libs
-while current_dir != current_dir.parent:  # Stop at filesystem root
+while current_dir != current_dir.parent:
     shared_libs_candidate = current_dir / "platform" / "shared_libs"
     if shared_libs_candidate.exists():
         shared_libs_dir = shared_libs_candidate
         break
     current_dir = current_dir.parent
 else:
-    # Fallback: assume we're 5 levels deep from root
     shared_libs_dir = current_file.parent.parent.parent.parent.parent / "platform" / "shared_libs"
 
-# Add shared_libs directory to Python path
 sys.path.insert(0, str(shared_libs_dir))
-
 try:
-    # Now this should work (pyshared is in shared_libs directory)
     from pyshared import add_env_cors
     print(f"Imported pyshared from {shared_libs_dir}")
-except ImportError as e:
-    print(f"Failed to import pyshared: {e}")
-    print("Using fallback CORS...")
-    
-    # Fallback implementation
+except ImportError:
+    from fastapi.middleware.cors import CORSMiddleware
+
     def add_env_cors(app):
-        from fastapi.middleware.cors import CORSMiddleware
         app.add_middleware(
             CORSMiddleware,
-            allow_origins=["http://localhost:3000", "http://localhost:5173", "http://localhost:8000", "https://teems-web-app.vercel.app"],
+            allow_origins=[
+                "http://localhost:3000",
+                "http://localhost:5173",
+                "http://localhost:8000",
+                "https://teems-web-app.vercel.app",
+            ],
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
         )
 
+from .auth import AuthenticatedUser, require_tenant
 from .config import Settings, get_settings
-from .jobs import JobManager
+
+redis_client: Optional[Redis] = None
+
+
+async def get_redis(settings: Settings = Depends(get_settings)) -> Optional[Redis]:
+    global redis_client
+    if redis_client:
+        return redis_client
+    if not settings.redis_url:
+        return None
+    redis_client = Redis.from_url(settings.redis_url, encoding="utf-8", decode_responses=True)
+    return redis_client
+
+
+async def pubsub_pump(pubsub, websocket: WebSocket):
+    async for message in pubsub.listen():
+        if message["type"] != "message":
+            continue
+        try:
+            data = message["data"]
+            payload = json.loads(data) if isinstance(data, str) else data
+            await websocket.send_json(payload)
+        except Exception as exc:  # pragma: no cover
+            logger.warning("Failed to forward pubsub message: {}", exc)
 
 
 def create_app() -> FastAPI:
@@ -54,52 +78,43 @@ def create_app() -> FastAPI:
 
     app = FastAPI(
         title="Realtime Workflow Service",
-        version="0.1.0",
+        version="0.2.0",
         docs_url="/docs",
         redoc_url="/redoc",
     )
 
-    # Apply CORS using env-driven configuration plus localhost defaults.
-    # Note: browsers don't use CORS for WebSocket upgrade itself, but this
-    # is important for any HTTP endpoints the frontend calls.
     add_env_cors(app)
 
-    job_manager = JobManager(default_duration=settings.default_job_duration_seconds)
-
-    @app.on_event("startup")
-    async def startup_event() -> None:
-        logger.info("Realtime service ready; allowing up to {} sockets", settings.max_connections)
+    @app.on_event("shutdown")
+    async def shutdown_event() -> None:
+        global redis_client
+        if redis_client:
+            await redis_client.close()
+            redis_client = None
 
     @app.get("/health", tags=["health"])
-    async def health() -> dict[str, str]:
-        return {"status": "ok"}
-
-    @app.get("/jobs/{job_id}", tags=["jobs"])
-    async def get_job(job_id: str) -> Any:
-        job = await job_manager.get_job(job_id)
-        if job is None:
-            raise HTTPException(status_code=404, detail="Job not found")
-        return {
-            "job_id": job.id,
-            "status": job.status,
-            "result": job.result,
-            "error": job.error,
-            "created_at": job.created_at,
-            "updated_at": job.updated_at,
-        }
+    async def health() -> Any:
+        return JSONResponse({"status": "ok"})
 
     @app.websocket("/ws")
-    async def websocket_handler(websocket: WebSocket, settings: Settings = Depends(get_settings)) -> None:
-        if await job_manager.connection_count() >= settings.max_connections:
-            await websocket.close(code=1013, reason="Too many clients connected")
+    async def websocket_handler(
+        websocket: WebSocket,
+        user: AuthenticatedUser = Depends(require_tenant()),
+        settings: Settings = Depends(get_settings),
+        redis: Optional[Redis] = Depends(get_redis),
+    ) -> None:
+        await websocket.accept()
+
+        if redis is None:
+            await websocket.send_json({"type": "ERROR", "error": "Redis not configured"})
+            await websocket.close(code=1011)
             return
 
-        await websocket.accept()
-        connection_id = await job_manager.register(websocket)
-        logger.debug("WebSocket {} connected", connection_id)
+        pubsub = redis.pubsub()
+        pump_task: asyncio.Task | None = None
 
         try:
-            await websocket.send_json({"type": "WELCOME", "connection_id": connection_id})
+            await websocket.send_json({"type": "WELCOME", "user": user.sub})
             while True:
                 message = await websocket.receive_json()
                 action = message.get("action")
@@ -108,35 +123,33 @@ def create_app() -> FastAPI:
                     await websocket.send_json({"type": "PONG"})
                     continue
 
-                if action != "create_job":
-                    await websocket.send_json(
-                        {
-                            "type": "ERROR",
-                            "error": "Unsupported action. Use 'create_job'.",
-                        }
-                    )
+                if action == "subscribe":
+                    channels = message.get("channels") or []
+                    channels = [ch for ch in channels if isinstance(ch, str)]
+                    if not channels:
+                        await websocket.send_json({"type": "ERROR", "error": "channels required"})
+                        continue
+                    await pubsub.subscribe(*channels)
+                    if pump_task is None:
+                        pump_task = asyncio.create_task(pubsub_pump(pubsub, websocket))
+                    await websocket.send_json({"type": "SUBSCRIBED", "channels": channels})
                     continue
 
-                payload = message.get("payload") or {}
-                job = await job_manager.create_job(connection_id, payload)
-                await websocket.send_json(
-                    {
-                        "type": "JOB_ACCEPTED",
-                        "job_id": job.id,
-                        "status": job.status,
-                    }
-                )
+                await websocket.send_json({"type": "ERROR", "error": "Unsupported action"})
 
         except WebSocketDisconnect:
-            logger.debug("WebSocket {} disconnected", connection_id)
+            logger.debug("WebSocket disconnected for user {}", user.sub)
         except Exception as exc:  # pragma: no cover
-            logger.exception("WebSocket {} crashed: {}", connection_id, exc)
+            logger.exception("WebSocket crashed: {}", exc)
             await websocket.close(code=1011)
         finally:
-            await job_manager.unregister(connection_id)
+            if pump_task:
+                pump_task.cancel()
+                with contextlib.suppress(Exception):
+                    await pump_task
+            await pubsub.close()
 
     return app
 
 
 app = create_app()
-

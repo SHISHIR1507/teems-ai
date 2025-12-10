@@ -123,6 +123,11 @@ jobs:
           fi
 
       - name: Deploy CloudFormation stack (network, cluster, ALB, ECS service)
+        env:
+          REDIS_URL: ${{ secrets.REDIS_URL || secrets.REALTIME_REDIS_URL }}
+          AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN || secrets.REALTIME_AUTH0_DOMAIN }}
+          AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE || secrets.REALTIME_AUTH0_AUDIENCE }}
+          AUTH0_ALGORITHM: ${{ secrets.AUTH0_ALGORITHM || secrets.REALTIME_AUTH0_ALGORITHM }}
         run: |
           set -e
           aws cloudformation deploy \
@@ -135,6 +140,10 @@ jobs:
               ContainerPort=8080 \
               DesiredCount=1 \
               HealthCheckPath="/health" \
+              RedisUrl="${REDIS_URL:-}" \
+              Auth0Domain="${AUTH0_DOMAIN:-}" \
+              Auth0Audience="${AUTH0_AUDIENCE:-}" \
+              Auth0Algorithm="${AUTH0_ALGORITHM:-RS256}" \
             --no-fail-on-empty-changeset
 
       - name: Output service URL

@@ -124,15 +124,15 @@ jobs:
 
       - name: Deploy CloudFormation stack (network, cluster, ALB, ECS service)
         env:
-          AUTH0_DOMAIN: ${{ secrets.AUTH_AUTH0_DOMAIN }}
-          AUTH0_AUDIENCE: ${{ secrets.AUTH_AUTH0_AUDIENCE }}
-          AUTH0_CLIENT_ID: ${{ secrets.AUTH_AUTH0_CLIENT_ID }}
-          AUTH0_CLIENT_SECRET: ${{ secrets.AUTH_AUTH0_CLIENT_SECRET }}
-          AUTH0_MANAGEMENT_AUDIENCE: ${{ secrets.AUTH_AUTH0_MANAGEMENT_AUDIENCE }}
-          POSTGRES_HOST: ${{ secrets.AUTH_POSTGRES_HOST }}
-          POSTGRES_DB: ${{ secrets.AUTH_POSTGRES_DB }}
-          POSTGRES_USER: ${{ secrets.AUTH_POSTGRES_USER }}
-          POSTGRES_PASSWORD: ${{ secrets.AUTH_POSTGRES_PASSWORD }}
+          AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN || secrets.AUTH_AUTH0_DOMAIN }}
+          AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE || secrets.AUTH_AUTH0_AUDIENCE }}
+          AUTH0_CLIENT_ID: ${{ secrets.AUTH0_CLIENT_ID || secrets.AUTH_AUTH0_CLIENT_ID }}
+          AUTH0_CLIENT_SECRET: ${{ secrets.AUTH0_CLIENT_SECRET || secrets.AUTH_AUTH0_CLIENT_SECRET }}
+          AUTH0_MANAGEMENT_AUDIENCE: ${{ secrets.AUTH0_MANAGEMENT_AUDIENCE || secrets.AUTH_AUTH0_MANAGEMENT_AUDIENCE }}
+          POSTGRES_HOST: ${{ secrets.POSTGRES_HOST || secrets.AUTH_POSTGRES_HOST }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB || secrets.AUTH_POSTGRES_DB }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER || secrets.AUTH_POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD || secrets.AUTH_POSTGRES_PASSWORD }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
         run: |
           set -e

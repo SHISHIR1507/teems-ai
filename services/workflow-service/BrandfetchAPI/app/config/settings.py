@@ -12,9 +12,16 @@ class Settings(BaseSettings):
     brandfetch_endpoint: str = "https://api.brandfetch.io/v2/brands/"
 
     database_url: str
+    redis_url: str | None = None
 
     request_timeout_seconds: float = 30.0
     cache_ttl_seconds: int = 1800
+    onboarding_channel_prefix: str = "onboarding"
+
+    # Auth0 (to deduce tenant/user from tokens)
+    auth0_domain: str = "teems.us.auth0.com"
+    auth0_audience: str
+    auth0_algorithm: str = "RS256"
 
     model_config = SettingsConfigDict(
         env_file=(".env", ".env.local"),

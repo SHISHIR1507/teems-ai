@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 import uuid as uuid_pkg
 from pydantic import BaseModel, Field
 
@@ -71,3 +71,41 @@ class AgentListResponse(BaseModel):
     total: int
     page: int
     size: int
+
+
+class AgentAssignmentRequest(BaseModel):
+    tenant_id: Optional[str] = Field(default=None, description="Tenant identifier")
+    user_id: Optional[str] = Field(default=None, description="User who is adding the agent")
+
+
+class AgentAssignmentResponse(BaseModel):
+    id: uuid_pkg.UUID
+    agent_id: uuid_pkg.UUID
+    tenant_id: Optional[str]
+    user_id: Optional[str]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class AgentRunRequest(BaseModel):
+    tenant_id: Optional[str] = Field(default=None, description="Tenant identifier for the run")
+    user_id: Optional[str] = Field(default=None, description="User who triggered the run")
+    input_payload: Dict[str, Any] = Field(default_factory=dict, description="Execution input/prompt/context")
+
+
+class AgentRunResponse(BaseModel):
+    id: uuid_pkg.UUID
+    agent_id: uuid_pkg.UUID
+    status: str
+    tenant_id: Optional[str]
+    user_id: Optional[str]
+    input_payload: Dict[str, Any]
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True

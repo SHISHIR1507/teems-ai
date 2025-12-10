@@ -7,6 +7,11 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     # Database
     database_url: str = Field(..., alias="DATABASE_URL")
+
+    # Auth0
+    auth0_domain: str = Field(..., alias="AUTH0_DOMAIN")
+    auth0_audience: str = Field(..., alias="AUTH0_AUDIENCE")
+    auth0_algorithm: str = Field(default="RS256", alias="AUTH0_ALGORITHM")
     
     
     # S3 (will be added later)

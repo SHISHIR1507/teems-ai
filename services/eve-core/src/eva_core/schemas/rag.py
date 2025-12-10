@@ -35,6 +35,7 @@ class ChatRequest(BaseModel):
     llm_provider: Literal["openai", "gemini"] | None = None
     llm_model: str | None = None
     top_k: int | None = Field(default=None, ge=1, le=20)
+    conversation_id: str | None = Field(default=None, description="Conversation id for WS streaming")
 
 
 class SourceChunk(BaseModel):

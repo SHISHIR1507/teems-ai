@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 import uuid
-from sqlalchemy import Column, String, Integer, Text, DateTime, JSON
+from sqlalchemy import Column, String, Integer, Text, DateTime, JSON, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 
 from ..database.base import Base
@@ -39,3 +39,37 @@ class Agent(Base):
 
     def __repr__(self):
         return f"<Agent(name={self.name}, title={self.title})>"
+
+
+class AgentRun(Base):
+    __tablename__ = "agent_runs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False)
+    tenant_id = Column(String(255), nullable=True, index=True)
+    user_id = Column(String(255), nullable=True, index=True)
+    status = Column(String(50), nullable=False, default="queued")
+    input_payload = Column(JSON, nullable=True, default=dict)
+    result = Column(JSON, nullable=True)
+    error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    def __repr__(self):
+        return f"<AgentRun(agent_id={self.agent_id}, status={self.status})>"
+
+
+class AgentAssignment(Base):
+    __tablename__ = "agent_assignments"
+    __table_args__ = (
+        UniqueConstraint("agent_id", "tenant_id", "user_id", name="uq_agent_assignment"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    agent_id = Column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False)
+    tenant_id = Column(String(255), nullable=True, index=True)
+    user_id = Column(String(255), nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    def __repr__(self):
+        return f"<AgentAssignment(agent_id={self.agent_id}, tenant_id={self.tenant_id}, user_id={self.user_id})>"

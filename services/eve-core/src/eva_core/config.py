@@ -13,6 +13,9 @@ class Settings(BaseSettings):
     database_url: str = Field(..., alias="DATABASE_URL")
     vector_dimension: int = Field(default=1536, alias="VECTOR_DIMENSION")
 
+    # Redis for events
+    redis_url: str | None = Field(default=None, alias="REDIS_URL")
+
     # Chunking / retrieval
     chunk_size: int = Field(default=750, alias="CHUNK_SIZE")
     chunk_overlap: int = Field(default=150, alias="CHUNK_OVERLAP")
@@ -43,6 +46,10 @@ class Settings(BaseSettings):
     auth0_domain: str = Field(..., alias="AUTH0_DOMAIN")
     auth0_audience: str = Field(..., alias="AUTH0_AUDIENCE")
     auth0_algorithm: str = Field(default="RS256", alias="AUTH0_ALGORITHM")
+
+    # External services
+    recommender_url: str | None = Field(default=None, alias="RECOMMENDER_URL")
+    billing_url: str | None = Field(default=None, alias="BILLING_URL")
 
     model_config = SettingsConfigDict(
         env_file=(".env", ".env.local"),

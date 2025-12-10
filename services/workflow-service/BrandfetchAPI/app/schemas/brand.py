@@ -10,6 +10,14 @@ class BrandFetchRequest(BaseModel):
         default=False,
         description="When true, bypass cached DB record and hit Brandfetch again",
     )
+    tenant_id: str | None = Field(
+        default=None,
+        description="Tenant identifier used for onboarding event channeling",
+    )
+    conversation_id: str | None = Field(
+        default=None,
+        description="Conversation identifier for correlating realtime events",
+    )
 
     @field_validator("url")
     @classmethod

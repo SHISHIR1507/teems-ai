@@ -1,19 +1,25 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..clients import BrandfetchClient, DomainParsingError
-from ..config import Settings, get_settings
+from ..config import Settings
 from ..database import get_session
+from ..dependencies import (
+    get_publisher_dep,
+    get_settings_dep,
+)
+from ..events import EventPublisher
 from ..models import BrandRecord
 from ..schemas import BrandFetchRequest, BrandFetchResponse, BrandRecordResponse, BrandSummary
+from ..auth import require_tenant, AuthenticatedUser
 
 router = APIRouter(prefix="/brands", tags=["brands"])
 
 
-async def get_brandfetch_client(settings: Settings = Depends(get_settings)) -> BrandfetchClient:
+async def get_brandfetch_client(settings: Settings = Depends(get_settings_dep)) -> BrandfetchClient:
     return BrandfetchClient(settings)
 
 
@@ -34,6 +40,10 @@ async def fetch_brand(
     payload: BrandFetchRequest,
     session: Annotated[AsyncSession, Depends(get_session)],
     client: Annotated[BrandfetchClient, Depends(get_brandfetch_client)],
+    settings: Annotated[Settings, Depends(get_settings_dep)],
+    publisher: Annotated[EventPublisher, Depends(get_publisher_dep)],
+    user: AuthenticatedUser = Depends(require_tenant()),
+    request: Request = None,
 ) -> BrandFetchResponse:
     try:
         domain = BrandfetchClient._extract_clean_domain(payload.url)
@@ -45,7 +55,15 @@ async def fetch_brand(
 
     existing = await session.scalar(select(BrandRecord).where(BrandRecord.domain == domain))
     if existing and not payload.force_refresh:
-        return BrandFetchResponse(**map_record(existing).model_dump(), source="cache")
+        response = BrandFetchResponse(**map_record(existing).model_dump(), source="cache")
+        await _publish_onboarding_event(
+            publisher,
+            settings,
+            user,
+            _extract_conversation_id(payload, request),
+            response,
+        )
+        return response
 
     try:
         data = await client.fetch(payload.url)
@@ -72,7 +90,15 @@ async def fetch_brand(
         await session.commit()
         await session.refresh(existing)
 
-        return BrandFetchResponse(**map_record(existing).model_dump(), source="external")
+        response = BrandFetchResponse(**map_record(existing).model_dump(), source="external")
+        await _publish_onboarding_event(
+            publisher,
+            settings,
+            user,
+            _extract_conversation_id(payload, request),
+            response,
+        )
+        return response
     except Exception:
         await session.rollback()
         raise
@@ -156,4 +182,41 @@ async def list_brands(
         )
         for record in results
     ]
+
+
+async def _publish_onboarding_event(
+    publisher: EventPublisher,
+    settings: Settings,
+    user: AuthenticatedUser,
+    conversation_id: str | None,
+    response: BrandFetchResponse,
+) -> None:
+    if not user.tenant_id:
+        return
+
+    channel = f"{settings.onboarding_channel_prefix}:{user.tenant_id}"
+    await publisher.publish(
+        channel,
+        {
+            "type": "brandfetch.completed",
+            "step": "get_company_details",
+            "next_step": "add_agents",
+            "tenant_id": user.tenant_id,
+            "conversation_id": conversation_id,
+            "domain": response.domain,
+            "name": response.name,
+            "description": response.description,
+            "icon": response.icon,
+            "source": response.source,
+        },
+    )
+
+
+def _extract_conversation_id(payload: BrandFetchRequest, request: Request | None) -> str | None:
+    # Prefer a header (e.g., set by gateway) and fall back to payload
+    if request:
+        header_val = request.headers.get("X-Conversation-Id") or request.headers.get("X-Conversation-ID")
+        if header_val:
+            return header_val
+    return payload.conversation_id
 

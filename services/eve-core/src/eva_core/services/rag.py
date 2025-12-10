@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import Settings
+from ..events import EventPublisher
 from ..models.document import Document, DocumentChunk
 from ..schemas.rag import (
     ChatRequest,
@@ -27,11 +28,13 @@ class RAGService:
         settings: Settings,
         embedder: EmbeddingProvider,
         llm_factory: LLMFactory,
+        publisher: EventPublisher,
     ) -> None:
         self.session = session
         self.settings = settings
         self.embedder = embedder
         self.llm_factory = llm_factory
+        self.publisher = publisher
 
     async def ingest_text(self, payload: DocumentIngestRequest) -> DocumentIngestResponse:
         chunks = chunk_text(payload.text, self.settings.chunk_size, self.settings.chunk_overlap)
@@ -60,6 +63,15 @@ class RAGService:
 
         self.session.add_all(chunk_models)
         await self.session.commit()
+        await self.publisher.publish(
+            f"conversation:{payload.tenant_id}",
+            {
+                "type": "ingest.completed",
+                "document_id": str(document.id),
+                "chunks_created": len(chunk_models),
+                "tenant_id": payload.tenant_id,
+            },
+        )
         return DocumentIngestResponse(document_id=str(document.id), chunks_created=len(chunk_models))
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
@@ -184,7 +196,7 @@ When responding:
         answer = await llm_client.generate(messages, model=model)
         latency_ms = int((time.perf_counter() - start) * 1000)
 
-        return ChatResponse(
+        response = ChatResponse(
             answer=answer,
             sources=sources,
             provider=provider,
@@ -192,6 +204,17 @@ When responding:
             latency_ms=latency_ms,
             generated_at=self._now(),
         )
+        if request.conversation_id:
+            await self.publisher.publish(
+                f"conversation:{request.conversation_id}",
+                {
+                    "type": "chat.complete",
+                    "conversation_id": request.conversation_id,
+                    "tenant_id": request.tenant_id,
+                    "payload": response.model_dump(),
+                },
+            )
+        return response
 
     @staticmethod
     def _now():

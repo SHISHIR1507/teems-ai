@@ -1,19 +1,13 @@
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    log_level: str = "info"
-    env: str = "development"
-    default_job_duration_seconds: float = 3.0
-    max_connections: int = 500
-    redis_url: str | None = None
-
-    # Auth
-    auth0_domain: str | None = None
-    auth0_audience: str | None = None
-    auth0_algorithm: str = "RS256"
+    env: str = Field(default="development", alias="ENV")
+    log_level: str = Field(default="info", alias="LOG_LEVEL")
+    s3_bucket: str | None = Field(default=None, alias="S3_BUCKET")
 
     model_config = SettingsConfigDict(
         env_file=(".env", ".env.local"),
@@ -24,5 +18,6 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    return Settings()  # type: ignore[arg-type]
+
 
