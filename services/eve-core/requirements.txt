@@ -22,5 +22,4 @@ torch==2.9.1
 transformers==4.57.3
 pymupdf==1.26.6
 Pillow==11.3.0
-google-generativeai==0.8.5
 greenlet==3.3.0

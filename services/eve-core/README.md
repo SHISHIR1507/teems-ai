@@ -32,13 +32,14 @@ uvicorn eva_core.app:create_app --factory --reload --port 8080
 - `DATABASE_URL` – async SQLAlchemy URL, e.g. `postgresql+asyncpg://user:pass@host:5432/eve_core`
 - `VECTOR_DIMENSION` – embedding dimension (1536 for `text-embedding-3-small`).
 - `EMBEDDING_PROVIDER` / `EMBEDDING_MODEL` – `openai` or `gemini` (both go through AIML API; the model name selects the underlying provider/model).
-- `AIML_API_KEY` – your AIML API key (see [AIML quickstart](https://docs.aimlapi.com/quickstart/setting-up)).
+- `AIML_API_KEY` – your AIML API key for accessing all models (OpenAI, Gemini, etc.) via AIML API. See [AIML quickstart](https://docs.aimlapi.com/quickstart/setting-up).
 - `AIML_BASE_URL` – base URL for AIML API (defaults to `https://api.aimlapi.com/v1`).
-- `DEFAULT_LLM_PROVIDER` / `DEFAULT_LLM_MODEL` – fallback chat provider/model (e.g. `openai` + `gpt-4o` or `gemini` + a Gemini model ID exposed by AIML).
+- `DEFAULT_LLM_PROVIDER` / `DEFAULT_LLM_MODEL` – fallback chat provider/model (e.g. `openai` + `gpt-4o` or `gemini` + a Gemini model ID like `google/gemini-2.0-flash-exp` exposed by AIML API).
+
+**Note:** All models (OpenAI, Gemini text, Gemini vision for diagram description) are accessed through AIML API using a single `AIML_API_KEY`. No separate API keys needed.
 - `AUTH0_DOMAIN` – your Auth0 domain (e.g. `your-tenant.us.auth0.com`).
 - `AUTH0_AUDIENCE` – the API audience configured in Auth0.
 - `AUTH0_ALGORITHM` – JWT algorithm, usually `RS256`.
-- `GEMINI_API_KEY` – (Optional) Google Gemini API key for diagram description.
 
 
 
@@ -74,8 +75,8 @@ docker run --env-file .env -p 8080:8080 eve-core
 
 1. Obtain an Auth0 access token that includes a `tenant_id` claim.
 2. Ingest a sample document via `/v1/rag/ingest/text` with the `Authorization` header set.
-3. Hit `/v1/rag/chat` with `{ "query": "..." }` and the same `Authorization` header. The llm_model field is required in practice. You must specify a valid model name(e.g., gpt-3.5-turbo, gpt-4o-mini, gemini-2.0-flash).
-4. Optionally set llm_provider to gemini or openai to override the default provider.
+3. Hit `/v1/rag/chat` with `{ "query": "..." }` and the same `Authorization` header. The llm_model field is required in practice. You must specify a valid model name via AIML API (e.g., `gpt-3.5-turbo`, `gpt-4o-mini`, `google/gemini-2.0-flash-exp`).
+4. Optionally set llm_provider to `gemini` or `openai` to override the default provider.
 
 
 The service will retrieve the top chunks for the authenticated user's tenant from Postgres, feed them plus chat history into the requested model, and return the answer with references.

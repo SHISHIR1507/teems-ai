@@ -144,10 +144,7 @@ async def extract_text_from_upload(file: UploadFile) -> str:
         try:
             file.file = io.BytesIO(contents)
             from .ocr_service import process_uploaded_image
-            from ..config import get_settings
-            settings = get_settings()
-            api_key = getattr(settings, 'gemini_api_key', None)
-            return await process_uploaded_image(file, api_key)
+            return await process_uploaded_image(file)
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -168,10 +165,7 @@ async def extract_text_from_upload(file: UploadFile) -> str:
         if filename.endswith('.pdf') and len(cleaned.strip()) < 200:
             file.file = io.BytesIO(contents)
             from .ocr_service import process_uploaded_pdf
-            from ..config import get_settings
-            settings = get_settings()
-            api_key = getattr(settings, 'gemini_api_key', None)
-            return await process_uploaded_pdf(file, api_key)
+            return await process_uploaded_pdf(file)
         
         return cleaned
         

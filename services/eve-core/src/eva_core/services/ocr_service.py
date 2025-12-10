@@ -1,11 +1,13 @@
 
 import io
+import base64
 import torch
 import fitz
 from PIL import Image
 from fastapi import UploadFile
 from transformers import AutoProcessor, AutoModelForImageTextToText
-import google.generativeai as genai
+from openai import AsyncOpenAI
+from ..config import get_settings
 
 
 def load_ocr():
@@ -24,14 +26,19 @@ def load_ocr():
     return processor, model, device
 
 
-def load_vision_model(api_key: str = None):
-    if not api_key:
-        print("Gemini API key missing — scene description disabled")
+def get_vision_client():
+    """Get AIML API client for vision models."""
+    settings = get_settings()
+    if not settings.aiml_api_key:
+        print("AIML API key missing — scene description disabled")
         return None
-
-    genai.configure(api_key=api_key)
-    print("Gemini Vision model loaded!")
-    return genai.GenerativeModel("gemini-2.5-flash")
+    
+    client = AsyncOpenAI(
+        api_key=settings.aiml_api_key,
+        base_url=settings.aiml_base_url,
+    )
+    print("AIML Vision model client loaded!")
+    return client
 
 
 def pdf_to_images(pdf_bytes: bytes, dpi=300):
@@ -67,45 +74,69 @@ def ocr_image(image, processor, model, device):
     )[0].strip()
 
 
-def describe_scene(image, gemini_model):
-    if not gemini_model:
+async def describe_scene(image, vision_client):
+    """Describe scene using AIML API vision model."""
+    if not vision_client:
         return ""
+
+    # Convert PIL Image to base64
+    buffered = io.BytesIO()
+    image.save(buffered, format="PNG")
+    img_base64 = base64.b64encode(buffered.getvalue()).decode("utf-8")
+    img_data_url = f"data:image/png;base64,{img_base64}"
 
     prompt = """
     You are a scientific visual analysis assistant.
     Describe the diagram or figure in the image in a technical manner.
     Ignore only-text content and focus on the visual meaning.
     """
-    response = gemini_model.generate_content([prompt, image])
-    return response.text.strip()
+    
+    try:
+        response = await vision_client.chat.completions.create(
+            model="google/gemini-2.0-flash-exp",  # Vision-capable model via AIML API
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {"url": img_data_url}},
+                    ],
+                }
+            ],
+            max_tokens=500,
+        )
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"Vision model error: {e}")
+        return ""
 
 
 
-async def process_uploaded_image(file: UploadFile, gemini_api_key: str = None) -> str:
+async def process_uploaded_image(file: UploadFile) -> str:
     contents = await file.read()
     
     # Load models
     processor, model, device = load_ocr()
-    gemini_model = load_vision_model(gemini_api_key)
+    vision_client = get_vision_client()
     
     # Convert to image
     img = Image.open(io.BytesIO(contents)).convert("RGB")
     
     text = ocr_image(img, processor, model, device)
-    scene = describe_scene(img, gemini_model)
+    scene = await describe_scene(img, vision_client)
     
     if scene:
         return f"{text}\n\n[Diagram]: {scene}"
     return text
 
 
-async def process_uploaded_pdf(file: UploadFile, gemini_api_key: str = None) -> str:
+async def process_uploaded_pdf(file: UploadFile) -> str:
     """Converts PDF bytes to a list of images at the specified DPI."""
     contents = await file.read()
     
     # Load models
     processor, model, device = load_ocr()
-    gemini_model = load_vision_model(gemini_api_key)
+    vision_client = get_vision_client()
     
     # Convert PDF to images
     pages = pdf_to_images(contents)
@@ -115,6 +146,10 @@ async def process_uploaded_pdf(file: UploadFile, gemini_api_key: str = None) -> 
     for i, img in enumerate(pages, start=1):
         print(f"OCR Page {i}/{len(pages)}...")
         text = ocr_image(img, processor, model, device)
-        results.append(f"--- Page {i} ---\n{text}")
+        scene = await describe_scene(img, vision_client) if vision_client else ""
+        page_result = f"--- Page {i} ---\n{text}"
+        if scene:
+            page_result += f"\n\n[Diagram]: {scene}"
+        results.append(page_result)
     
     return "\n\n".join(results)

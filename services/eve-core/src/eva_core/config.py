@@ -25,7 +25,6 @@ class Settings(BaseSettings):
         default="openai", alias="EMBEDDING_PROVIDER"
     )
     embedding_model: str = Field(default="text-embedding-3-small", alias="EMBEDDING_MODEL")
-    gemini_api_key: str = Field(default=None, alias="GEMINI_API_KEY")
 
     # AIML API configuration (used to access OpenAI / Gemini models via AIML)
     aiml_api_key: str = Field(..., alias="AIML_API_KEY")
