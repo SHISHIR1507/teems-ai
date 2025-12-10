@@ -148,22 +148,6 @@ Resources:
     Properties:
       ClusterName: !Sub "${AppName}-cluster"
 
-  ServiceSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Access for ECS tasks
-      VpcId: !Ref VPC
-      SecurityGroupIngress:
-        - IpProtocol: -1
-          FromPort: 0
-          ToPort: 65535
-          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
-      SecurityGroupEgress:
-        - IpProtocol: -1
-          FromPort: 0
-          ToPort: 65535
-          CidrIp: 0.0.0.0/0
-
   LoadBalancerSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -174,6 +158,22 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+
+  ServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access for ECS tasks
+      VpcId: !Ref VPC
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 65535
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
       SecurityGroupEgress:
         - IpProtocol: -1
           FromPort: 0
@@ -248,8 +248,16 @@ Resources:
             Action:
               - sts:AssumeRole
 
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${AppName}"
+      RetentionInDays: 14
+
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
+    DependsOn:
+      - LogGroup
     Properties:
       Family: !Sub "${AppName}-task"
       Cpu: "512"
@@ -302,12 +310,6 @@ Resources:
               awslogs-group: !Sub "/ecs/${AppName}"
               awslogs-region: !Ref AWS::Region
               awslogs-stream-prefix: ecs
-
-  LogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/ecs/${AppName}"
-      RetentionInDays: 14
 
   Service:
     Type: AWS::ECS::Service

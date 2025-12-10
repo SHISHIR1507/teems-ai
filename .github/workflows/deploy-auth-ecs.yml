@@ -125,6 +125,7 @@ jobs:
 
       - name: Deploy CloudFormation stack (network, cluster, ALB, ECS service)
         env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL || secrets.AUTH_DATABASE_URL }}
           AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN || secrets.AUTH_AUTH0_DOMAIN }}
           AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE || secrets.AUTH_AUTH0_AUDIENCE }}
           AUTH0_CLIENT_ID: ${{ secrets.AUTH0_CLIENT_ID || secrets.AUTH_AUTH0_CLIENT_ID }}
@@ -133,9 +134,9 @@ jobs:
           POSTGRES_HOST: ${{ secrets.POSTGRES_HOST || secrets.AUTH_POSTGRES_HOST }}
           POSTGRES_DB: ${{ secrets.POSTGRES_DB || secrets.AUTH_POSTGRES_DB }}
           POSTGRES_USER: ${{ secrets.POSTGRES_USER || secrets.AUTH_POSTGRES_USER }}
-              POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD || secrets.AUTH_POSTGRES_PASSWORD }}
-              AWS_REGION: ${{ secrets.AWS_REGION }}
-              CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS || secrets.AUTH_CORS_ALLOWED_ORIGINS || '' }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD || secrets.AUTH_POSTGRES_PASSWORD }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS || secrets.AUTH_CORS_ALLOWED_ORIGINS || '' }}
         run: |
           set -e
           aws cloudformation deploy \

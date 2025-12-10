@@ -128,10 +128,10 @@ jobs:
           BRANDFETCH_API_KEY: ${{ secrets.BRANDFETCH_API_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL || secrets.BRANDFETCH_DATABASE_URL }}
           REDIS_URL: ${{ secrets.REDIS_URL || secrets.BRANDFETCH_REDIS_URL }}
-              AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN || secrets.BRANDFETCH_AUTH0_DOMAIN }}
-              AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE || secrets.BRANDFETCH_AUTH0_AUDIENCE }}
-              AUTH0_ALGORITHM: ${{ secrets.AUTH0_ALGORITHM || secrets.BRANDFETCH_AUTH0_ALGORITHM }}
-              CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS || secrets.BRANDFETCH_CORS_ALLOWED_ORIGINS || '' }}
+          AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN || secrets.BRANDFETCH_AUTH0_DOMAIN }}
+          AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE || secrets.BRANDFETCH_AUTH0_AUDIENCE }}
+          AUTH0_ALGORITHM: ${{ secrets.AUTH0_ALGORITHM || secrets.BRANDFETCH_AUTH0_ALGORITHM }}
+          CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS || secrets.BRANDFETCH_CORS_ALLOWED_ORIGINS || '' }}
         run: |
           set -e
           aws cloudformation deploy \
