@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY requirements.txt .
+COPY services/workflow-service/BrandfetchAPI/requirements.txt .
 RUN python -m venv /opt/venv && \
     . /opt/venv/bin/activate && \
     pip install --upgrade pip && \
@@ -22,8 +22,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
-COPY app ./app
-COPY README.md README.md
+COPY services/workflow-service/BrandfetchAPI/app ./app
+COPY services/workflow-service/BrandfetchAPI/README.md README.md
+COPY platform ./platform
 # .env file is optional - environment variables will be injected by ECS
 
 EXPOSE 8080

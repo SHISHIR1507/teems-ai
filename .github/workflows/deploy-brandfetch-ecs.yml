@@ -58,9 +58,10 @@ jobs:
           LATEST_URI="${REGISTRY}/${ECR_REPOSITORY}:latest"
 
           docker build \
+            -f services/workflow-service/BrandfetchAPI/Dockerfile \
             -t "${IMAGE_URI}" \
             -t "${LATEST_URI}" \
-            ./services/workflow-service/BrandfetchAPI
+            .
 
           docker push "${IMAGE_URI}"
           docker push "${LATEST_URI}"
@@ -126,9 +127,11 @@ jobs:
         env:
           BRANDFETCH_API_KEY: ${{ secrets.BRANDFETCH_API_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL || secrets.BRANDFETCH_DATABASE_URL }}
-          AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN || secrets.BRANDFETCH_AUTH0_DOMAIN }}
-          AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE || secrets.BRANDFETCH_AUTH0_AUDIENCE }}
-          AUTH0_ALGORITHM: ${{ secrets.AUTH0_ALGORITHM || secrets.BRANDFETCH_AUTH0_ALGORITHM }}
+          REDIS_URL: ${{ secrets.REDIS_URL || secrets.BRANDFETCH_REDIS_URL }}
+              AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN || secrets.BRANDFETCH_AUTH0_DOMAIN }}
+              AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE || secrets.BRANDFETCH_AUTH0_AUDIENCE }}
+              AUTH0_ALGORITHM: ${{ secrets.AUTH0_ALGORITHM || secrets.BRANDFETCH_AUTH0_ALGORITHM }}
+              CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS || secrets.BRANDFETCH_CORS_ALLOWED_ORIGINS || '' }}
         run: |
           set -e
           aws cloudformation deploy \
@@ -143,9 +146,11 @@ jobs:
               HealthCheckPath="/health" \
               BrandfetchApiKey="${BRANDFETCH_API_KEY:-}" \
               DatabaseUrl="${DATABASE_URL:-}" \
+              RedisUrl="${REDIS_URL:-}" \
               Auth0Domain="${AUTH0_DOMAIN:-}" \
               Auth0Audience="${AUTH0_AUDIENCE:-}" \
               Auth0Algorithm="${AUTH0_ALGORITHM:-RS256}" \
+              CORSAllowedOrigins="${CORS_ALLOWED_ORIGINS:-}" \
             --no-fail-on-empty-changeset
 
       - name: Output service URL

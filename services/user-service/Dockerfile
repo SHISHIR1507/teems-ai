@@ -8,8 +8,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY pyproject.toml README.md ./
-COPY Auth ./Auth
+COPY services/user-service/pyproject.toml services/user-service/README.md ./
+COPY services/user-service/Auth ./Auth
 RUN python -m venv /opt/venv && \
     . /opt/venv/bin/activate && \
     pip install --upgrade pip && \
@@ -24,7 +24,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
-COPY Auth ./Auth
+COPY services/user-service/Auth ./Auth
+COPY platform ./platform
 # .env file is optional - environment variables will be injected by ECS
 
 EXPOSE 8080

@@ -37,6 +37,6 @@ class BillingLedger(Base):
     amount = Column(Numeric(10, 2), nullable=True)
     currency = Column(String(8), default="USD", nullable=False)
     description = Column(String(256), nullable=True)
-    metadata = Column(JSON, nullable=True)
+    meta_data = Column(JSON, name="metadata", nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 

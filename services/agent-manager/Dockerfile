@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY requirements.txt ./
+COPY services/agent-manager/requirements.txt ./
 RUN python -m venv /opt/venv && \
     . /opt/venv/bin/activate && \
     pip install --upgrade pip && \
@@ -23,10 +23,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
-COPY src ./src
-COPY main.py main.py
-COPY README.md README.md
+COPY services/agent-manager/src ./src
+COPY services/agent-manager/main.py main.py
+COPY services/agent-manager/README.md README.md
+COPY platform ./platform
 
 EXPOSE 8080
-CMD ["uvicorn", "agent_manager.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
 

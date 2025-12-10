@@ -17,7 +17,7 @@ class Agent(Base):
     owner_user_id = Column(UUID(as_uuid=True), nullable=True, index=True)
     name = Column(String(200), nullable=False)
     visibility = Column(String(32), default="private", nullable=False)
-    metadata = Column(JSON, nullable=True, default=dict)
+    meta_data = Column(JSON, name="metadata", nullable=True, default=dict)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
 

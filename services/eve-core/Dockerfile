@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY requirements.txt ./
+COPY services/eve-core/requirements.txt ./
 RUN python -m venv /opt/venv && \
     . /opt/venv/bin/activate && \
     pip install --upgrade pip && \
@@ -23,9 +23,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY --from=builder /opt/venv /opt/venv
-COPY src ./src
-COPY main.py main.py
-COPY README.md README.md
+COPY services/eve-core/src ./src
+COPY services/eve-core/main.py main.py
+COPY services/eve-core/README.md README.md
+COPY platform ./platform
 # .env file is optional - environment variables will be injected by ECS
 
 EXPOSE 8080

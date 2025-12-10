@@ -18,7 +18,7 @@ class Conversation(Base):
     user_id = Column(UUID(as_uuid=True), nullable=True, index=True)
     title = Column(Text, nullable=True)
     status = Column(String(32), default="active", nullable=False)
-    metadata = Column(JSON, nullable=True)
+    meta_data = Column(JSON, name="metadata", nullable=True)
     last_message_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
