@@ -2,7 +2,7 @@ FROM python:3.11-slim AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=off \
+    PIP_NO_CACHE_DIR=on \
     PIP_DISABLE_PIP_VERSION_CHECK=on
 
 WORKDIR /app
@@ -11,7 +11,9 @@ COPY services/eve-core/requirements.txt ./
 RUN python -m venv /opt/venv && \
     . /opt/venv/bin/activate && \
     pip install --upgrade pip && \
-    pip install -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt && \
+    find /opt/venv -type d -name __pycache__ -exec rm -r {} + 2>/dev/null || true && \
+    find /opt/venv -type f -name "*.pyc" -delete 2>/dev/null || true
 
 FROM python:3.11-slim
 

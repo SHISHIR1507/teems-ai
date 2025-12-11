@@ -48,6 +48,14 @@ jobs:
             aws ecr create-repository --repository-name "${ECR_REPOSITORY}" >/dev/null
           fi
 
+      - name: Clean up Docker to free disk space
+        run: |
+          set -e
+          echo "Cleaning up Docker to free disk space..."
+          docker system prune -af --volumes || true
+          docker builder prune -af || true
+          df -h
+
       - name: Build and push Docker image
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
@@ -67,6 +75,15 @@ jobs:
           docker push "${LATEST_URI}"
 
           echo "IMAGE_URI=${IMAGE_URI}" >> "$GITHUB_ENV"
+
+      - name: Clean up Docker after build
+        if: always()
+        run: |
+          set -e
+          echo "Cleaning up Docker after build..."
+          docker system prune -af --volumes || true
+          docker builder prune -af || true
+          df -h
 
       - name: Wait for stack to be ready (if exists)
         timeout-minutes: 20

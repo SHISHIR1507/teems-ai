@@ -68,6 +68,53 @@ jobs:
 
           echo "IMAGE_URI=${IMAGE_URI}" >> "$GITHUB_ENV"
 
+      - name: Check and cleanup failed stack (if in ROLLBACK_COMPLETE)
+        run: |
+          set -e
+          if aws cloudformation describe-stacks --stack-name "${CLOUD_FORMATION_STACK}" >/dev/null 2>&1; then
+            STACK_STATUS=$(aws cloudformation describe-stacks \
+              --stack-name "${CLOUD_FORMATION_STACK}" \
+              --query "Stacks[0].StackStatus" \
+              --output text)
+
+            echo "Current stack status: ${STACK_STATUS}"
+
+            if [[ "${STACK_STATUS}" == "ROLLBACK_COMPLETE" ]]; then
+              echo "Stack is in ROLLBACK_COMPLETE state. Deleting stack before redeployment..."
+              aws cloudformation delete-stack --stack-name "${CLOUD_FORMATION_STACK}"
+              echo "Waiting for stack deletion to complete (max 10 minutes)..."
+              MAX_WAIT=600
+              ELAPSED=0
+              POLL_INTERVAL=15
+
+              while [ $ELAPSED -lt $MAX_WAIT ]; do
+                if ! aws cloudformation describe-stacks --stack-name "${CLOUD_FORMATION_STACK}" >/dev/null 2>&1; then
+                  echo "Stack deleted successfully"
+                  break
+                fi
+
+                CURRENT_STATUS=$(aws cloudformation describe-stacks \
+                  --stack-name "${CLOUD_FORMATION_STACK}" \
+                  --query "Stacks[0].StackStatus" \
+                  --output text 2>/dev/null || echo "DELETED")
+
+                echo "  [${ELAPSED}s] Deletion in progress: ${CURRENT_STATUS}"
+
+                if [[ "${CURRENT_STATUS}" == "DELETED" ]] || [[ ! "${CURRENT_STATUS}" == *"DELETE"* ]]; then
+                  echo "Stack deletion completed"
+                  break
+                fi
+
+                sleep $POLL_INTERVAL
+                ELAPSED=$((ELAPSED + POLL_INTERVAL))
+              done
+
+              if aws cloudformation describe-stacks --stack-name "${CLOUD_FORMATION_STACK}" >/dev/null 2>&1; then
+                echo "Warning: Stack deletion still in progress after timeout. Proceeding anyway..."
+              fi
+            fi
+          fi
+
       - name: Wait for stack to be ready (if exists)
         timeout-minutes: 20
         run: |
