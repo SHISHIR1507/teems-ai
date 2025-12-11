@@ -71,48 +71,79 @@ jobs:
       - name: Check and cleanup failed stack (if in ROLLBACK_COMPLETE)
         run: |
           set -e
-          if aws cloudformation describe-stacks --stack-name "${CLOUD_FORMATION_STACK}" >/dev/null 2>&1; then
-            STACK_STATUS=$(aws cloudformation describe-stacks \
+          # Check if stack exists
+          if ! aws cloudformation describe-stacks --stack-name "${CLOUD_FORMATION_STACK}" >/dev/null 2>&1; then
+            echo "Stack does not exist, nothing to clean up"
+            exit 0
+          fi
+
+          # Get stack status
+          STACK_STATUS=$(aws cloudformation describe-stacks \
+            --stack-name "${CLOUD_FORMATION_STACK}" \
+            --query "Stacks[0].StackStatus" \
+            --output text 2>/dev/null || echo "")
+
+          if [[ -z "${STACK_STATUS}" ]]; then
+            echo "Could not determine stack status, skipping cleanup"
+            exit 0
+          fi
+
+          echo "Current stack status: ${STACK_STATUS}"
+
+          if [[ "${STACK_STATUS}" != "ROLLBACK_COMPLETE" ]]; then
+            echo "Stack is not in ROLLBACK_COMPLETE state, no cleanup needed"
+            exit 0
+          fi
+
+          echo "Stack is in ROLLBACK_COMPLETE state. Deleting stack before redeployment..."
+          aws cloudformation delete-stack --stack-name "${CLOUD_FORMATION_STACK}"
+
+          echo "Waiting for stack deletion to complete (max 10 minutes)..."
+          MAX_WAIT=600
+          ELAPSED=0
+          POLL_INTERVAL=15
+
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
+            # Check if stack still exists
+            if ! aws cloudformation describe-stacks --stack-name "${CLOUD_FORMATION_STACK}" >/dev/null 2>&1; then
+              echo "Stack deleted successfully"
+              exit 0
+            fi
+
+            # Get current status
+            CURRENT_STATUS=$(aws cloudformation describe-stacks \
               --stack-name "${CLOUD_FORMATION_STACK}" \
               --query "Stacks[0].StackStatus" \
-              --output text)
+              --output text 2>/dev/null || echo "")
 
-            echo "Current stack status: ${STACK_STATUS}"
-
-            if [[ "${STACK_STATUS}" == "ROLLBACK_COMPLETE" ]]; then
-              echo "Stack is in ROLLBACK_COMPLETE state. Deleting stack before redeployment..."
-              aws cloudformation delete-stack --stack-name "${CLOUD_FORMATION_STACK}"
-              echo "Waiting for stack deletion to complete (max 10 minutes)..."
-              MAX_WAIT=600
-              ELAPSED=0
-              POLL_INTERVAL=15
-
-              while [ $ELAPSED -lt $MAX_WAIT ]; do
-                if ! aws cloudformation describe-stacks --stack-name "${CLOUD_FORMATION_STACK}" >/dev/null 2>&1; then
-                  echo "Stack deleted successfully"
-                  break
-                fi
-
-                CURRENT_STATUS=$(aws cloudformation describe-stacks \
-                  --stack-name "${CLOUD_FORMATION_STACK}" \
-                  --query "Stacks[0].StackStatus" \
-                  --output text 2>/dev/null || echo "DELETED")
-
-                echo "  [${ELAPSED}s] Deletion in progress: ${CURRENT_STATUS}"
-
-                if [[ "${CURRENT_STATUS}" == "DELETED" ]] || [[ ! "${CURRENT_STATUS}" == *"DELETE"* ]]; then
-                  echo "Stack deletion completed"
-                  break
-                fi
-
-                sleep $POLL_INTERVAL
-                ELAPSED=$((ELAPSED + POLL_INTERVAL))
-              done
-
-              if aws cloudformation describe-stacks --stack-name "${CLOUD_FORMATION_STACK}" >/dev/null 2>&1; then
-                echo "Warning: Stack deletion still in progress after timeout. Proceeding anyway..."
-              fi
+            if [[ -z "${CURRENT_STATUS}" ]]; then
+              echo "Stack deleted successfully (no longer exists)"
+              exit 0
             fi
+
+            echo "  [${ELAPSED}s] Deletion in progress: ${CURRENT_STATUS}"
+
+            # Check for completion states
+            if [[ "${CURRENT_STATUS}" == "DELETE_COMPLETE" ]]; then
+              echo "Stack deletion completed"
+              exit 0
+            fi
+
+            # If status changed to something unexpected, log and continue
+            if [[ "${CURRENT_STATUS}" != *"DELETE"* ]] && [[ "${CURRENT_STATUS}" != *"ROLLBACK"* ]]; then
+              echo "Stack status changed to ${CURRENT_STATUS}, assuming deletion completed"
+              exit 0
+            fi
+
+            sleep $POLL_INTERVAL
+            ELAPSED=$((ELAPSED + POLL_INTERVAL))
+          done
+
+          # Final check - if stack still exists, warn but continue
+          if aws cloudformation describe-stacks --stack-name "${CLOUD_FORMATION_STACK}" >/dev/null 2>&1; then
+            echo "Warning: Stack deletion still in progress after timeout. Proceeding anyway..."
+          else
+            echo "Stack deletion completed"
           fi
 
       - name: Wait for stack to be ready (if exists)
