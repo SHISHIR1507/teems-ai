@@ -30,6 +30,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Clean up disk space (early)
+        run: |
+          set -e
+          echo "=== Disk space before cleanup ==="
+          df -h
+          echo "=== Cleaning up system caches ==="
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY" || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          echo "=== Cleaning up Docker ==="
+          docker system prune -af --volumes || true
+          docker builder prune -af || true
+          echo "=== Disk space after cleanup ==="
+          df -h
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -48,17 +65,26 @@ jobs:
             aws ecr create-repository --repository-name "${ECR_REPOSITORY}" >/dev/null
           fi
 
-      - name: Clean up Docker to free disk space
+      - name: Check disk space before build
         run: |
           set -e
-          echo "Cleaning up Docker to free disk space..."
-          docker system prune -af --volumes || true
-          docker builder prune -af || true
+          echo "=== Disk space check before build ==="
           df -h
+          AVAILABLE=$(df -h / | awk 'NR==2 {print $4}' | sed 's/G//' | sed 's/M//')
+          if command -v bc >/dev/null 2>&1; then
+            if (( $(echo "$AVAILABLE < 5" | bc -l) )); then
+              echo "ERROR: Less than 5GB available. Cannot proceed with build."
+              exit 1
+            fi
+          else
+            echo "bc not available, skipping numeric check"
+          fi
+          echo "Sufficient disk space available"
 
       - name: Build and push Docker image
         env:
           REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          DOCKER_BUILDKIT: 1
         run: |
           set -e
           IMAGE_TAG="${GITHUB_SHA}"
@@ -66,6 +92,7 @@ jobs:
           LATEST_URI="${REGISTRY}/${ECR_REPOSITORY}:latest"
 
           docker build \
+            --build-arg BUILDKIT_INLINE_CACHE=1 \
             -f services/eve-core/Dockerfile \
             -t "${IMAGE_URI}" \
             -t "${LATEST_URI}" \
