@@ -200,6 +200,7 @@ jobs:
           fi
 
       - name: Deploy CloudFormation stack
+        id: deploy-stack
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL || secrets.AGENT_MANAGER_DATABASE_URL }}
           AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN || secrets.AGENT_MANAGER_AUTH0_DOMAIN }}
@@ -224,6 +225,30 @@ jobs:
               Auth0Algorithm="${AUTH0_ALGORITHM:-RS256}" \
               CORSAllowedOrigins="${CORS_ALLOWED_ORIGINS:-}" \
             --no-fail-on-empty-changeset
+
+      - name: Show stack events on failure
+        if: failure()
+        run: |
+          echo "=== CloudFormation Stack Events (last 20) ==="
+          aws cloudformation describe-stack-events \
+            --stack-name "${CLOUD_FORMATION_STACK}" \
+            --max-items 20 \
+            --query "StackEvents[*].[Timestamp,ResourceType,LogicalResourceId,ResourceStatus,ResourceStatusReason]" \
+            --output table || true
+          
+          echo ""
+          echo "=== Stack Status ==="
+          aws cloudformation describe-stacks \
+            --stack-name "${CLOUD_FORMATION_STACK}" \
+            --query "Stacks[0].[StackStatus,StackStatusReason]" \
+            --output table || true
+          
+          echo ""
+          echo "=== Failed Resources ==="
+          aws cloudformation describe-stack-events \
+            --stack-name "${CLOUD_FORMATION_STACK}" \
+            --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED'].[LogicalResourceId,ResourceStatusReason]" \
+            --output table || true
 
       - name: Output service URL
         id: stack-output
