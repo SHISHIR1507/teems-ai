@@ -308,5 +308,20 @@ Outputs:
   LoadBalancerDNS:
     Description: Public DNS name for the Application Load Balancer
     Value: !GetAtt LoadBalancer.DNSName
+  VPCId:
+    Description: VPC ID for sharing with other services
+    Value: !Ref VPC
+    Export:
+      Name: !Sub "${AppName}-vpc-id"
+  PublicSubnet1Id:
+    Description: Public Subnet 1 ID for sharing with other services
+    Value: !Ref PublicSubnet1
+    Export:
+      Name: !Sub "${AppName}-subnet-1-id"
+  PublicSubnet2Id:
+    Description: Public Subnet 2 ID for sharing with other services
+    Value: !Ref PublicSubnet2
+    Export:
+      Name: !Sub "${AppName}-subnet-2-id"
 
 

@@ -199,6 +199,106 @@ jobs:
             echo "Stack does not exist yet, will create new stack"
           fi
 
+      - name: Get shared VPC resources from brandfetch stack
+        id: get-vpc
+        run: |
+          set -e
+          BRANDFETCH_STACK="teems-brandfetch-ecs"
+          
+          echo "Checking for brandfetch stack: ${BRANDFETCH_STACK}"
+          
+          # Check if brandfetch stack exists
+          if ! aws cloudformation describe-stacks --stack-name "${BRANDFETCH_STACK}" >/dev/null 2>&1; then
+            echo "::error::Brandfetch stack '${BRANDFETCH_STACK}' does not exist."
+            echo "Agent Manager requires the brandfetch stack to be deployed first to share VPC resources."
+            echo "Please deploy brandfetch service first, then retry agent-manager deployment."
+            exit 1
+          fi
+          
+          # Check if stack is in a valid state
+          STACK_STATUS=$(aws cloudformation describe-stacks \
+            --stack-name "${BRANDFETCH_STACK}" \
+            --query "Stacks[0].StackStatus" \
+            --output text 2>/dev/null || echo "")
+          
+          if [[ -z "${STACK_STATUS}" ]]; then
+            echo "::error::Could not determine brandfetch stack status"
+            exit 1
+          fi
+          
+          if [[ "${STACK_STATUS}" != "CREATE_COMPLETE" ]] && [[ "${STACK_STATUS}" != "UPDATE_COMPLETE" ]]; then
+            echo "::error::Brandfetch stack is in state '${STACK_STATUS}', not ready for sharing VPC resources"
+            echo "Stack must be in CREATE_COMPLETE or UPDATE_COMPLETE state"
+            exit 1
+          fi
+          
+          echo "Brandfetch stack status: ${STACK_STATUS}"
+          
+          # Get VPC and Subnet IDs from brandfetch stack outputs
+          echo "Fetching VPC resources from brandfetch stack outputs..."
+          
+          VPC_ID=$(aws cloudformation describe-stacks \
+            --stack-name "${BRANDFETCH_STACK}" \
+            --query "Stacks[0].Outputs[?OutputKey=='VPCId'].OutputValue" \
+            --output text 2>/dev/null || echo "")
+          
+          SUBNET1_ID=$(aws cloudformation describe-stacks \
+            --stack-name "${BRANDFETCH_STACK}" \
+            --query "Stacks[0].Outputs[?OutputKey=='PublicSubnet1Id'].OutputValue" \
+            --output text 2>/dev/null || echo "")
+          
+          SUBNET2_ID=$(aws cloudformation describe-stacks \
+            --stack-name "${BRANDFETCH_STACK}" \
+            --query "Stacks[0].Outputs[?OutputKey=='PublicSubnet2Id'].OutputValue" \
+            --output text 2>/dev/null || echo "")
+          
+          # Validate all values are present
+          if [[ -z "${VPC_ID}" ]] || [[ "${VPC_ID}" == "None" ]]; then
+            echo "::error::Could not retrieve VPC ID from brandfetch stack"
+            echo "Make sure brandfetch stack has VPCId output defined"
+            exit 1
+          fi
+          
+          if [[ -z "${SUBNET1_ID}" ]] || [[ "${SUBNET1_ID}" == "None" ]]; then
+            echo "::error::Could not retrieve PublicSubnet1Id from brandfetch stack"
+            echo "Make sure brandfetch stack has PublicSubnet1Id output defined"
+            exit 1
+          fi
+          
+          if [[ -z "${SUBNET2_ID}" ]] || [[ "${SUBNET2_ID}" == "None" ]]; then
+            echo "::error::Could not retrieve PublicSubnet2Id from brandfetch stack"
+            echo "Make sure brandfetch stack has PublicSubnet2Id output defined"
+            exit 1
+          fi
+          
+          # Verify resources exist in AWS
+          echo "Validating VPC and subnet resources exist..."
+          
+          if ! aws ec2 describe-vpcs --vpc-ids "${VPC_ID}" >/dev/null 2>&1; then
+            echo "::error::VPC ${VPC_ID} does not exist in AWS"
+            exit 1
+          fi
+          
+          if ! aws ec2 describe-subnets --subnet-ids "${SUBNET1_ID}" >/dev/null 2>&1; then
+            echo "::error::Subnet ${SUBNET1_ID} does not exist in AWS"
+            exit 1
+          fi
+          
+          if ! aws ec2 describe-subnets --subnet-ids "${SUBNET2_ID}" >/dev/null 2>&1; then
+            echo "::error::Subnet ${SUBNET2_ID} does not exist in AWS"
+            exit 1
+          fi
+          
+          # Export to environment variables for next step
+          echo "VPC_ID=${VPC_ID}" >> "$GITHUB_ENV"
+          echo "SUBNET1_ID=${SUBNET1_ID}" >> "$GITHUB_ENV"
+          echo "SUBNET2_ID=${SUBNET2_ID}" >> "$GITHUB_ENV"
+          
+          echo "✓ Successfully retrieved shared VPC resources:"
+          echo "  VPC ID: ${VPC_ID}"
+          echo "  Subnet 1: ${SUBNET1_ID}"
+          echo "  Subnet 2: ${SUBNET2_ID}"
+
       - name: Deploy CloudFormation stack
         id: deploy-stack
         env:
@@ -209,6 +309,21 @@ jobs:
           CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS || secrets.AGENT_MANAGER_CORS_ALLOWED_ORIGINS || '' }}
         run: |
           set -e
+          
+          # Validate VPC environment variables are set
+          if [[ -z "${VPC_ID}" ]] || [[ -z "${SUBNET1_ID}" ]] || [[ -z "${SUBNET2_ID}" ]]; then
+            echo "::error::VPC resources not available. VPC_ID, SUBNET1_ID, and SUBNET2_ID must be set."
+            echo "VPC_ID: ${VPC_ID:-NOT_SET}"
+            echo "SUBNET1_ID: ${SUBNET1_ID:-NOT_SET}"
+            echo "SUBNET2_ID: ${SUBNET2_ID:-NOT_SET}"
+            exit 1
+          fi
+          
+          echo "Deploying agent-manager stack with shared VPC resources..."
+          echo "  VPC: ${VPC_ID}"
+          echo "  Subnet 1: ${SUBNET1_ID}"
+          echo "  Subnet 2: ${SUBNET2_ID}"
+          
           aws cloudformation deploy \
             --stack-name "${CLOUD_FORMATION_STACK}" \
             --template-file infra/ecs-agent-manager-stack.yaml \
@@ -224,6 +339,9 @@ jobs:
               Auth0Audience="${AUTH0_AUDIENCE:-}" \
               Auth0Algorithm="${AUTH0_ALGORITHM:-RS256}" \
               CORSAllowedOrigins="${CORS_ALLOWED_ORIGINS:-}" \
+              SharedVPCId="${VPC_ID}" \
+              SharedSubnet1Id="${SUBNET1_ID}" \
+              SharedSubnet2Id="${SUBNET2_ID}" \
             --no-fail-on-empty-changeset
 
       - name: Show stack events on failure
