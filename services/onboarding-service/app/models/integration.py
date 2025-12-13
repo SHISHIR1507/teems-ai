@@ -23,7 +23,7 @@ class UserIntegration(Base):
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="connected"
     )  # connected, disconnected
-    metadata: Mapped[dict[str, Any] | None] = mapped_column(
+    extra_data: Mapped[dict[str, Any] | None] = mapped_column(
         JSON, nullable=True
     )  # For tokens/credentials (encrypted in production)
     created_at: Mapped[datetime] = mapped_column(

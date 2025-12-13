@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 class IntegrationCreate(BaseModel):
     integration_type: str = Field(..., description="Integration type: slack, google_drive, notion, github, etc.")
-    metadata: dict[str, Any] | None = Field(None, description="Integration metadata/tokens")
+    extra_data: dict[str, Any] | None = Field(None, description="Integration extra data/tokens")
 
 
 class IntegrationResponse(BaseModel):
@@ -15,7 +15,7 @@ class IntegrationResponse(BaseModel):
     user_id: str
     integration_type: str
     status: str
-    metadata: dict[str, Any] | None = None
+    extra_data: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
 

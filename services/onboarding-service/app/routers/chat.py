@@ -63,7 +63,7 @@ async def chat(
             user_id=user.sub,
             conversation_id=conversation_id,
             current_stage="brand_discovery",
-            metadata={},
+            extra_data={},
         )
         session.add(state)
         await session.flush()

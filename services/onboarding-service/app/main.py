@@ -28,12 +28,29 @@ except ImportError as e:
     print(f"Failed to import pyshared: {e}")
     print("Using fallback CORS...")
     
-    # Fallback implementation
+    # Fallback implementation matching pyshared behavior
     def add_env_cors(app):
+        import os
         from fastapi.middleware.cors import CORSMiddleware
+        
+        # Parse CORS_ALLOWED_ORIGINS from env
+        env_origins_str = os.getenv("CORS_ALLOWED_ORIGINS", "")
+        env_origins = [o.strip() for o in env_origins_str.split(",") if o.strip()] if env_origins_str else []
+        
+        # Default localhost origins
+        default_origins = [
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+        ]
+        
+        # Merge and deduplicate
+        all_origins = list(dict.fromkeys(default_origins + env_origins))
+        
         app.add_middleware(
             CORSMiddleware,
-            allow_origins=["http://localhost:3000", "http://localhost:5173", "http://localhost:8000", "https://teems-web-app.vercel.app"],
+            allow_origins=all_origins,
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],

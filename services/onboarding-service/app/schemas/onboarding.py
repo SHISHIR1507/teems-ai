@@ -14,7 +14,7 @@ class OnboardingStateResponse(BaseModel):
     selected_teammates: list[str] | None = None
     connected_integrations: list[str] | None = None
     notification_preferences: dict[str, Any] | None = None
-    metadata: dict[str, Any] = Field(default_factory=dict)
+    extra_data: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
 

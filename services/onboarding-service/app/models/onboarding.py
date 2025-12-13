@@ -40,7 +40,7 @@ class OnboardingState(Base):
     notification_preferences: Mapped[dict[str, Any] | None] = mapped_column(
         JSON, nullable=True
     )
-    metadata: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    extra_data: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, server_default="'{}'")
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
