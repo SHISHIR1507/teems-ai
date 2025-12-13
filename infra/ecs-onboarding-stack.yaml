@@ -1,0 +1,312 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: ECS Fargate service with ALB for Onboarding service (uses Brandfetch VPC)
+
+Parameters:
+  AppName:
+    Type: String
+    Default: teems-onboarding
+  ContainerImage:
+    Type: String
+    Description: Full ECR image URI (including tag) for Onboarding service
+  ContainerPort:
+    Type: Number
+    Default: 8080
+  DesiredCount:
+    Type: Number
+    Default: 1
+  HealthCheckPath:
+    Type: String
+    Default: /health
+  DatabaseUrl:
+    Type: String
+    Default: ""
+    Description: PostgreSQL database URL
+  RedisUrl:
+    Type: String
+    Default: ""
+    Description: Redis URL for pub/sub events
+  AIMLApiKey:
+    Type: String
+    Default: ""
+    Description: AIML API key for LLM requests
+  AIMLBaseUrl:
+    Type: String
+    Default: "https://api.aimlapi.com/v1"
+    Description: AIML API base URL
+  DefaultLLMModel:
+    Type: String
+    Default: "openai/gpt-4o-mini"
+    Description: Default LLM model for onboarding chat
+  Auth0Domain:
+    Type: String
+    Default: ""
+    Description: Auth0 domain
+  Auth0Audience:
+    Type: String
+    Default: ""
+    Description: Auth0 API audience
+  Auth0Algorithm:
+    Type: String
+    Default: RS256
+    Description: Auth0 token algorithm
+  BrandfetchApiUrl:
+    Type: String
+    Default: ""
+    Description: Internal Brandfetch API URL
+  AgentManagerApiUrl:
+    Type: String
+    Default: ""
+    Description: Internal Agent Manager API URL
+  CORSAllowedOrigins:
+    Type: String
+    Default: ""
+    Description: Comma-separated list of allowed CORS origins (optional)
+
+Resources:
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${AppName}-cluster"
+
+  ServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access for Onboarding ECS tasks
+      VpcId: !ImportValue teems-brandfetch-vpc-id
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 65535
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access to Onboarding ALB
+      VpcId: !ImportValue teems-brandfetch-vpc-id
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "${AppName}-alb"
+      Scheme: internet-facing
+      Subnets:
+        - !ImportValue teems-brandfetch-subnet-1-id
+        - !ImportValue teems-brandfetch-subnet-2-id
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "${AppName}-tg"
+      VpcId: !ImportValue teems-brandfetch-vpc-id
+      TargetType: ip
+      Port: !Ref ContainerPort
+      Protocol: HTTP
+      HealthCheckPath: !Ref HealthCheckPath
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: "200-399"
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AppName}-task-execution-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AppName}-task-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${AppName}-task"
+      Cpu: "2048"
+      Memory: "4096"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: !Sub "${AppName}-container"
+          Image: !Ref ContainerImage
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+          Essential: true
+          Environment:
+            - Name: ENV
+              Value: production
+            - Name: LOG_LEVEL
+              Value: info
+            - Name: DATABASE_URL
+              Value: !Ref DatabaseUrl
+            - Name: REDIS_URL
+              Value: !Ref RedisUrl
+            - Name: AIML_API_KEY
+              Value: !Ref AIMLApiKey
+            - Name: AIML_BASE_URL
+              Value: !Ref AIMLBaseUrl
+            - Name: DEFAULT_LLM_MODEL
+              Value: !Ref DefaultLLMModel
+            - Name: AUTH0_DOMAIN
+              Value: !Ref Auth0Domain
+            - Name: AUTH0_AUDIENCE
+              Value: !Ref Auth0Audience
+            - Name: AUTH0_ALGORITHM
+              Value: !Ref Auth0Algorithm
+            - Name: BRANDFETCH_API_URL
+              Value: !Ref BrandfetchApiUrl
+            - Name: AGENT_MANAGER_API_URL
+              Value: !Ref AgentManagerApiUrl
+            - Name: CORS_ALLOWED_ORIGINS
+              Value: !Ref CORSAllowedOrigins
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "/ecs/${AppName}"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${AppName}"
+      RetentionInDays: 14
+
+  AutoScalingTarget:
+    Type: AWS::ApplicationAutoScaling::ScalableTarget
+    Properties:
+      MaxCapacity: 50
+      MinCapacity: 5
+      ResourceId: !Sub "service/${Cluster}/${AppName}-service"
+      RoleARN: !GetAtt AutoScalingRole.Arn
+      ScalableDimension: ecs:service:DesiredCount
+      ServiceNamespace: ecs
+
+  AutoScalingRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: application-autoscaling.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceAutoScalingRole
+
+  AutoScalingPolicyCPU:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${AppName}-cpu-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref AutoScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: 70.0
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 60
+
+  AutoScalingPolicyMemory:
+    Type: AWS::ApplicationAutoScaling::ScalingPolicy
+    Properties:
+      PolicyName: !Sub "${AppName}-memory-scaling"
+      PolicyType: TargetTrackingScaling
+      ScalingTargetId: !Ref AutoScalingTarget
+      TargetTrackingScalingPolicyConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageMemoryUtilization
+        TargetValue: 80.0
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 60
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - Listener
+      - AutoScalingTarget
+    Properties:
+      ServiceName: !Sub "${AppName}-service"
+      Cluster: !Ref Cluster
+      DesiredCount: !Ref DesiredCount
+      LaunchType: FARGATE
+      TaskDefinition: !Ref TaskDefinition
+      HealthCheckGracePeriodSeconds: 60
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 50
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref ServiceSecurityGroup
+          Subnets:
+            - !ImportValue teems-brandfetch-subnet-1-id
+            - !ImportValue teems-brandfetch-subnet-2-id
+      LoadBalancers:
+        - ContainerName: !Sub "${AppName}-container"
+          ContainerPort: !Ref ContainerPort
+          TargetGroupArn: !Ref TargetGroup
+
+Outputs:
+  LoadBalancerDNS:
+    Description: Public DNS name for the Application Load Balancer
+    Value: !GetAtt LoadBalancer.DNSName
+

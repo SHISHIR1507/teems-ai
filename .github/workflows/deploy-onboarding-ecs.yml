@@ -1,0 +1,177 @@
+name: Deploy Onboarding Service to ECS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'services/onboarding-service/**'
+      - 'infra/ecs-onboarding-stack.yaml'
+      - '.github/workflows/deploy-onboarding-ecs.yml'
+  workflow_dispatch:  # Allow manual trigger
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  APP_NAME: teems-onboarding
+  ECR_REPOSITORY: teems-onboarding
+  CLOUD_FORMATION_STACK: teems-onboarding-ecs
+
+jobs:
+  deploy:
+    name: Build, Push, and Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Ensure ECR repository exists
+        run: |
+          set -e
+          if ! aws ecr describe-repositories --repository-names "${ECR_REPOSITORY}" >/dev/null 2>&1; then
+            aws ecr create-repository --repository-name "${ECR_REPOSITORY}" >/dev/null
+          fi
+
+      - name: Build and push Docker image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          set -e
+          IMAGE_TAG="${GITHUB_SHA}"
+          IMAGE_URI="${REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          LATEST_URI="${REGISTRY}/${ECR_REPOSITORY}:latest"
+
+          docker build \
+            -f services/onboarding-service/Dockerfile \
+            -t "${IMAGE_URI}" \
+            -t "${LATEST_URI}" \
+            .
+
+          docker push "${IMAGE_URI}"
+          docker push "${LATEST_URI}"
+
+          echo "IMAGE_URI=${IMAGE_URI}" >> "$GITHUB_ENV"
+
+      - name: Wait for stack to be ready (if exists)
+        timeout-minutes: 20
+        run: |
+          set -e
+          if aws cloudformation describe-stacks --stack-name "${CLOUD_FORMATION_STACK}" >/dev/null 2>&1; then
+            echo "Stack exists, checking status..."
+            STACK_STATUS=$(aws cloudformation describe-stacks \
+              --stack-name "${CLOUD_FORMATION_STACK}" \
+              --query "Stacks[0].StackStatus" \
+              --output text)
+            
+            echo "Current stack status: ${STACK_STATUS}"
+            
+            # Wait if stack is in progress (with timeout)
+            if [[ "${STACK_STATUS}" == *"IN_PROGRESS"* ]]; then
+              echo "Stack is ${STACK_STATUS}, waiting for completion (max 20 minutes)..."
+              MAX_WAIT=1200  # 20 minutes in seconds
+              ELAPSED=0
+              POLL_INTERVAL=30  # Check every 30 seconds
+              
+              while [ $ELAPSED -lt $MAX_WAIT ]; do
+                CURRENT_STATUS=$(aws cloudformation describe-stacks \
+                  --stack-name "${CLOUD_FORMATION_STACK}" \
+                  --query "Stacks[0].StackStatus" \
+                  --output text 2>/dev/null || echo "UNKNOWN")
+                
+                echo "  [${ELAPSED}s] Stack status: ${CURRENT_STATUS}"
+                
+                if [[ ! "${CURRENT_STATUS}" == *"IN_PROGRESS"* ]]; then
+                  echo "Stack reached stable state: ${CURRENT_STATUS}"
+                  break
+                fi
+                
+                sleep $POLL_INTERVAL
+                ELAPSED=$((ELAPSED + POLL_INTERVAL))
+              done
+              
+              # Final status check
+              FINAL_STATUS=$(aws cloudformation describe-stacks \
+                --stack-name "${CLOUD_FORMATION_STACK}" \
+                --query "Stacks[0].StackStatus" \
+                --output text)
+              
+              if [[ "${FINAL_STATUS}" == *"IN_PROGRESS"* ]]; then
+                echo "Warning: Stack still in progress after timeout. Proceeding anyway..."
+              else
+                echo "Stack is now: ${FINAL_STATUS}"
+              fi
+            else
+              echo "Stack is already in stable state: ${STACK_STATUS}"
+            fi
+          else
+            echo "Stack does not exist yet, will create new stack"
+          fi
+
+      - name: Deploy CloudFormation stack (network, cluster, ALB, ECS service)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL || secrets.ONBOARDING_DATABASE_URL }}
+          REDIS_URL: ${{ secrets.REDIS_URL || secrets.ONBOARDING_REDIS_URL }}
+          AIML_API_KEY: ${{ secrets.AIML_API_KEY || secrets.ONBOARDING_AIML_API_KEY }}
+          AIML_BASE_URL: ${{ secrets.AIML_BASE_URL || 'https://api.aimlapi.com/v1' }}
+          DEFAULT_LLM_MODEL: ${{ secrets.DEFAULT_LLM_MODEL || 'openai/gpt-4o-mini' }}
+          AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN || secrets.ONBOARDING_AUTH0_DOMAIN }}
+          AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE || secrets.ONBOARDING_AUTH0_AUDIENCE }}
+          AUTH0_ALGORITHM: ${{ secrets.AUTH0_ALGORITHM || secrets.ONBOARDING_AUTH0_ALGORITHM || 'RS256' }}
+          BRANDFETCH_API_URL: ${{ secrets.BRANDFETCH_API_URL || 'http://teems-brandfetch-alb-default.us-east-1.elb.amazonaws.com' }}
+          AGENT_MANAGER_API_URL: ${{ secrets.AGENT_MANAGER_API_URL || 'http://teems-agent-manager-alb-default.us-east-1.elb.amazonaws.com' }}
+          CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS || secrets.ONBOARDING_CORS_ALLOWED_ORIGINS || '' }}
+        run: |
+          set -e
+          aws cloudformation deploy \
+            --stack-name "${CLOUD_FORMATION_STACK}" \
+            --template-file infra/ecs-onboarding-stack.yaml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              AppName="${APP_NAME}" \
+              ContainerImage="${IMAGE_URI}" \
+              ContainerPort=8080 \
+              DesiredCount=1 \
+              HealthCheckPath="/health" \
+              DatabaseUrl="${DATABASE_URL:-}" \
+              RedisUrl="${REDIS_URL:-}" \
+              AIMLApiKey="${AIML_API_KEY:-}" \
+              AIMLBaseUrl="${AIML_BASE_URL:-https://api.aimlapi.com/v1}" \
+              DefaultLLMModel="${DEFAULT_LLM_MODEL:-openai/gpt-4o-mini}" \
+              Auth0Domain="${AUTH0_DOMAIN:-}" \
+              Auth0Audience="${AUTH0_AUDIENCE:-}" \
+              Auth0Algorithm="${AUTH0_ALGORITHM:-RS256}" \
+              BrandfetchApiUrl="${BRANDFETCH_API_URL:-}" \
+              AgentManagerApiUrl="${AGENT_MANAGER_API_URL:-}" \
+              CORSAllowedOrigins="${CORS_ALLOWED_ORIGINS:-}" \
+            --no-fail-on-empty-changeset
+
+      - name: Output service URL
+        id: stack-output
+        run: |
+          DNS_NAME=$(aws cloudformation describe-stacks \
+            --stack-name "${CLOUD_FORMATION_STACK}" \
+            --query "Stacks[0].Outputs[?OutputKey=='LoadBalancerDNS'].OutputValue" \
+            --output text)
+          echo "SERVICE_URL=http://${DNS_NAME}" >> "$GITHUB_OUTPUT"
+          echo "Service is available at: http://${DNS_NAME}"
+
+      - name: Print service URL
+        run: |
+          echo "Onboarding service endpoint URL: ${{ steps.stack-output.outputs.SERVICE_URL }}"
+
