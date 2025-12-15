@@ -240,7 +240,7 @@ Resources:
               Service: application-autoscaling.amazonaws.com
             Action: sts:AssumeRole
       ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceAutoScalingRole
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceAutoscaleRole
 
   AutoScalingPolicyCPU:
     Type: AWS::ApplicationAutoScaling::ScalingPolicy
