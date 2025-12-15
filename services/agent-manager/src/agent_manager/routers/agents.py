@@ -1,23 +1,23 @@
 from typing import List, Optional
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
 
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import and_, func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..auth import AuthenticatedUser, require_tenant
 from ..dependencies import get_db_session
-from ..models.agent import Agent, AgentRun, AgentAssignment
+from ..models.agent import Agent, AgentAssignment, AgentRun
 from ..schemas.agent import (
-    AgentResponse,
-    AgentListResponse,
-    AgentListItem,
-    AgentCreate,
-    AgentUpdate,
-    AgentRunRequest,
-    AgentRunResponse,
     AgentAssignmentRequest,
     AgentAssignmentResponse,
+    AgentCreate,
+    AgentListItem,
+    AgentListResponse,
+    AgentResponse,
+    AgentRunRequest,
+    AgentRunResponse,
 )
-from ..auth import require_tenant, AuthenticatedUser
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
 
@@ -27,16 +27,22 @@ async def get_agents(
     page: int = Query(1, ge=1, description="Page number"),
     size: int = Query(20, ge=1, le=100, description="Items per page"),
     category: Optional[str] = Query(None, description="Filter by category"),
+    user: AuthenticatedUser = Depends(require_tenant()),
     db: AsyncSession = Depends(get_db_session),
 ):
-    # Build query
-    query = select(Agent)
+    """
+    Return a paginated list of agents.
 
-    # Apply filters
+    Additionally, for the currently authenticated user, mark whether each agent
+    is already assigned to this tenant/user so the frontend can render the
+    proper state (e.g., "Added" vs "Add to workspace").
+    """
+    # Base query for agents (with optional category filter)
+    query = select(Agent)
     if category:
         query = query.where(Agent.category == category)
 
-    # Get total count
+    # Total count for pagination (respecting the same filter)
     count_query = select(func.count()).select_from(Agent)
     if category:
         count_query = count_query.where(Agent.category == category)
@@ -44,22 +50,43 @@ async def get_agents(
     total_result = await db.execute(count_query)
     total = total_result.scalar_one()
 
-    # Apply pagination
+    # Apply pagination and ordering
     offset = (page - 1) * size
     query = query.offset(offset).limit(size).order_by(Agent.created_at.desc())
 
-    # Execute query
+    # Execute main agent query
     result = await db.execute(query)
-    agents = result.scalars().all()
+    agents: List[Agent] = result.scalars().all()
 
-    # Convert to response
-    agent_items = [AgentListItem.from_orm(agent) for agent in agents]
+    # Fetch assignments for these agents for the current user/tenant
+    assigned_agent_ids: set[UUID] = set()
+    if agents:
+        agent_ids = [agent.id for agent in agents]
+
+        assignment_query = select(AgentAssignment.agent_id).where(
+            and_(
+                AgentAssignment.agent_id.in_(agent_ids),
+                AgentAssignment.tenant_id == user.tenant_id,
+                AgentAssignment.user_id == user.sub,
+            )
+        )
+        assignment_result = await db.execute(assignment_query)
+        assigned_agent_ids = {row[0] for row in assignment_result.all()}
+
+    # Convert to response items, annotating assignment state
+    agent_items: List[AgentListItem] = []
+    for agent in agents:
+        item = AgentListItem.from_orm(agent)
+        # New field on the list item indicating assignment for this user.
+        # The Pydantic model exposes this field; see AgentListItem in schemas/agent.py.
+        item.is_assigned_to_current_user = agent.id in assigned_agent_ids  # type: ignore[attr-defined]
+        agent_items.append(item)
 
     return AgentListResponse(
         agents=agent_items,
         total=total,
         page=page,
-        size=size
+        size=size,
     )
 
 @router.post("/", response_model=AgentResponse, summary="Create a new agent")

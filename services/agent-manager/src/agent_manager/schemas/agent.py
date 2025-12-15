@@ -45,7 +45,13 @@ class AgentListItem(BaseModel):
     skills: List[str]
     # profile_image_url: Optional[str] = None  # Will add when S3 ready
     created_at: datetime
-    
+    # Whether this agent is already assigned to the currently authenticated user.
+    # This is populated at runtime in the router by looking up AgentAssignment rows.
+    is_assigned_to_current_user: bool = Field(
+        default=False,
+        description="True if this agent is assigned to the requesting user in their tenant",
+    )
+
     class Config:
         from_attributes = True
 
@@ -74,8 +80,19 @@ class AgentListResponse(BaseModel):
 
 
 class AgentAssignmentRequest(BaseModel):
-    tenant_id: Optional[str] = Field(default=None, description="Tenant identifier")
-    user_id: Optional[str] = Field(default=None, description="User who is adding the agent")
+    """
+    Kept for backwards compatibility, but the assign endpoint now derives
+    tenant_id and user_id from the authenticated context instead of this body.
+    """
+
+    tenant_id: Optional[str] = Field(
+        default=None,
+        description="(Deprecated) Tenant identifier; ignored by the API",
+    )
+    user_id: Optional[str] = Field(
+        default=None,
+        description="(Deprecated) User who is adding the agent; ignored by the API",
+    )
 
 
 class AgentAssignmentResponse(BaseModel):
