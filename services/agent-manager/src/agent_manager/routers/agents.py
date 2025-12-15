@@ -62,7 +62,6 @@ async def get_agents(
         size=size
     )
 
-
 @router.post("/", response_model=AgentResponse, summary="Create a new agent")
 async def create_agent(
     payload: AgentCreate,

@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import JSON, String, Text, TIMESTAMP, func, ForeignKey, Index
+from sqlalchemy import JSON, String, Text, TIMESTAMP, func, ForeignKey, Index, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -40,7 +40,7 @@ class OnboardingState(Base):
     notification_preferences: Mapped[dict[str, Any] | None] = mapped_column(
         JSON, nullable=True
     )
-    extra_data: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, server_default="'{}'")
+    extra_data: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, server_default=text("'{}'::json"))
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default=func.now(), nullable=False
     )
