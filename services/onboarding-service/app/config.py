@@ -26,7 +26,6 @@ class Settings(BaseSettings):
 
     # Internal Service URLs
     brandfetch_api_url: str = "http://localhost:8095"
-    agent_manager_api_url: str = "http://localhost:8000"
 
     # Onboarding Configuration
     onboarding_channel_prefix: str = "onboarding"

@@ -6,7 +6,7 @@ from .config import Settings, get_settings
 from .database import get_session
 from .events import EventPublisher
 from .services.llm import LLMService
-from .services.clients import BrandfetchClient, AgentManagerClient
+from .services.clients import BrandfetchClient
 
 _settings = get_settings()
 _redis_pool: ConnectionPool | None = None
@@ -14,7 +14,6 @@ _redis: Redis | None = None
 _publisher: EventPublisher | None = None
 _llm_service: LLMService | None = None
 _brandfetch_client: BrandfetchClient | None = None
-_agent_manager_client: AgentManagerClient | None = None
 
 
 def get_settings_dep() -> Settings:
@@ -58,11 +57,3 @@ def get_brandfetch_client_dep(settings: Settings = Depends(get_settings_dep)) ->
     if _brandfetch_client is None:
         _brandfetch_client = BrandfetchClient(settings)
     return _brandfetch_client
-
-
-def get_agent_manager_client_dep(settings: Settings = Depends(get_settings_dep)) -> AgentManagerClient:
-    global _agent_manager_client
-    if _agent_manager_client is None:
-        _agent_manager_client = AgentManagerClient(settings)
-    return _agent_manager_client
-

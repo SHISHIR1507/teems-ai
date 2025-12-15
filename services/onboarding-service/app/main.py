@@ -83,11 +83,9 @@ def create_app() -> FastAPI:
     @app.on_event("shutdown")
     async def on_shutdown() -> None:
         """Cleanup connections on shutdown."""
-        from .dependencies import _brandfetch_client, _agent_manager_client, _redis
+        from .dependencies import _brandfetch_client, _redis
         if _brandfetch_client:
             await _brandfetch_client.close()
-        if _agent_manager_client:
-            await _agent_manager_client.close()
         if _redis:
             await _redis.close()
         logger.info("Onboarding Service shutdown complete")

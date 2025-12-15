@@ -13,13 +13,12 @@ from ..dependencies import (
     get_settings_dep,
     get_llm_service_dep,
     get_brandfetch_client_dep,
-    get_agent_manager_client_dep,
 )
 from ..events import EventPublisher
 from ..models import OnboardingState
 from ..schemas import ChatRequest, ChatResponse
 from ..services.llm import LLMService
-from ..services.clients import BrandfetchClient, AgentManagerClient
+from ..services.clients import BrandfetchClient
 from ..services.stage_handler import StageHandler
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -32,7 +31,6 @@ async def chat(
     settings: Annotated[Settings, Depends(get_settings_dep)],
     llm_service: Annotated[LLMService, Depends(get_llm_service_dep)],
     brandfetch_client: Annotated[BrandfetchClient, Depends(get_brandfetch_client_dep)],
-    agent_manager_client: Annotated[AgentManagerClient, Depends(get_agent_manager_client_dep)],
     publisher: Annotated[EventPublisher, Depends(get_publisher_dep)],
     user: AuthenticatedUser = Depends(require_tenant()),
 ) -> ChatResponse:
@@ -85,7 +83,6 @@ async def chat(
         settings=settings,
         llm_service=llm_service,
         brandfetch_client=brandfetch_client,
-        agent_manager_client=agent_manager_client,
         publisher=publisher,
         user=user,
     )

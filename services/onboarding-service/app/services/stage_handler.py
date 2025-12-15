@@ -6,7 +6,7 @@ from sqlalchemy import select
 from ..config import Settings
 from ..models import OnboardingState, ConversationMessage
 from ..services.llm import LLMService
-from ..services.clients import BrandfetchClient, AgentManagerClient
+from ..services.clients import BrandfetchClient
 from ..events import EventPublisher
 from ..auth import AuthenticatedUser
 
@@ -20,7 +20,6 @@ class StageHandler:
         settings: Settings,
         llm_service: LLMService,
         brandfetch_client: BrandfetchClient,
-        agent_manager_client: AgentManagerClient,
         publisher: EventPublisher,
         user: AuthenticatedUser,
     ):
@@ -28,7 +27,6 @@ class StageHandler:
         self.settings = settings
         self.llm_service = llm_service
         self.brandfetch_client = brandfetch_client
-        self.agent_manager_client = agent_manager_client
         self.publisher = publisher
         self.user = user
 

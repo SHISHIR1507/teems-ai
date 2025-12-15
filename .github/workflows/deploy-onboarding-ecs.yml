@@ -134,7 +134,6 @@ jobs:
           AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE || secrets.ONBOARDING_AUTH0_AUDIENCE }}
           AUTH0_ALGORITHM: ${{ secrets.AUTH0_ALGORITHM || secrets.ONBOARDING_AUTH0_ALGORITHM || 'RS256' }}
           BRANDFETCH_API_URL: ${{ secrets.BRANDFETCH_API_URL || 'http://teems-brandfetch-alb-default.us-east-1.elb.amazonaws.com' }}
-          AGENT_MANAGER_API_URL: ${{ secrets.AGENT_MANAGER_API_URL || 'http://teems-agent-manager-alb-default.us-east-1.elb.amazonaws.com' }}
           CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS || secrets.ONBOARDING_CORS_ALLOWED_ORIGINS || '' }}
         run: |
           set -e
@@ -157,7 +156,6 @@ jobs:
               Auth0Audience="${AUTH0_AUDIENCE:-}" \
               Auth0Algorithm="${AUTH0_ALGORITHM:-RS256}" \
               BrandfetchApiUrl="${BRANDFETCH_API_URL:-}" \
-              AgentManagerApiUrl="${AGENT_MANAGER_API_URL:-}" \
               CORSAllowedOrigins="${CORS_ALLOWED_ORIGINS:-}" \
             --no-fail-on-empty-changeset
 
