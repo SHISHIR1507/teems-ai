@@ -15,10 +15,13 @@ from ..schemas.rag import (
     DocumentIngestRequest,
     DocumentIngestResponse,
     SourceChunk,
+    RecommendationItem,
 )
 from .chunker import chunk_text
 from .embedding import EmbeddingProvider
 from .llm import LLMFactory
+
+from .recommendations import recommend_actions
 
 
 class RAGService:
@@ -92,6 +95,7 @@ class RAGService:
 
         rows = (await self.session.execute(stmt)).all()
         if not rows:
+            recommendations = recommend_actions(request.query, k=3, threshold=0.25)
             return ChatResponse(
                 answer="I could not find relevant context for your question.",
                 sources=[],
@@ -99,6 +103,7 @@ class RAGService:
                 model=request.llm_model or self.settings.default_llm_model,
                 generated_at=self._now(),
                 latency_ms=0,
+                recommendations=recommendations,
             )
 
         context_blocks = []
@@ -196,6 +201,8 @@ When responding:
         answer = await llm_client.generate(messages, model=model)
         latency_ms = int((time.perf_counter() - start) * 1000)
 
+        recommendations = recommend_actions(request.query, k=3, threshold=0.25)
+
         response = ChatResponse(
             answer=answer,
             sources=sources,
@@ -203,6 +210,7 @@ When responding:
             model=model,
             latency_ms=latency_ms,
             generated_at=self._now(),
+            recommendations=recommendations,
         )
         if request.conversation_id:
             await self.publisher.publish(

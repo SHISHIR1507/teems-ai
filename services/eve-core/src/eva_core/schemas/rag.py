@@ -46,6 +46,11 @@ class SourceChunk(BaseModel):
     score: float
     metadata: dict[str, Any] | None = None
 
+class RecommendationItem(BaseModel):
+    """Schema for a single recommended action"""
+    action: str = Field(..., description="The recommended action text")
+    score: float = Field(..., description="Similarity score (0.0-1.0)")
+    id: int = Field(..., description="Action item ID")
 
 class ChatResponse(BaseModel):
     answer: str
@@ -54,4 +59,10 @@ class ChatResponse(BaseModel):
     model: str
     latency_ms: int | None = None
     generated_at: datetime
+
+    recommendations: list[RecommendationItem] = Field(  
+        default_factory=list,
+        description="Recommended next actions based on user query"
+    )
+
 

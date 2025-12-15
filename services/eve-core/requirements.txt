@@ -23,3 +23,6 @@ transformers==4.57.3
 pymupdf==1.26.6
 Pillow==11.3.0
 greenlet==3.3.0
+
+sentence-transformers>=2.7.0
+numpy>=1.24.0

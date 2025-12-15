@@ -12,7 +12,7 @@ from ..dependencies import (
     get_publisher_dep,
     get_settings_dep,
 )
-from ..schemas.rag import ChatRequest, DocumentIngestRequest, DocumentIngestResponse
+from ..schemas.rag import ChatRequest, ChatResponse, DocumentIngestRequest, DocumentIngestResponse
 from ..services.chunker import extract_text_from_upload
 from ..services.embedding import EmbeddingProvider
 from ..services.llm import LLMFactory
@@ -67,7 +67,7 @@ async def ingest_file(
     return await rag_service.ingest_text(payload)
 
 
-@router.post("/v1/rag/chat", tags=["chat"])
+@router.post("/v1/rag/chat", response_model=ChatResponse, tags=["chat"])
 async def chat(
     payload: ChatRequest,
     user: AuthenticatedUser = Depends(require_tenant()),
