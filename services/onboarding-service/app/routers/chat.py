@@ -1,5 +1,5 @@
 from typing import Annotated
-from uuid import uuid4
+from uuid import uuid4, UUID as UUIDType
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -24,6 +24,15 @@ from ..services.stage_handler import StageHandler
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
+def _is_valid_uuid(value: str) -> bool:
+    """Check if a string is a valid UUID format."""
+    try:
+        UUIDType(value)
+        return True
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
 @router.post("", response_model=ChatResponse, summary="Chat endpoint for onboarding flow")
 async def chat(
     payload: ChatRequest,
@@ -45,7 +54,17 @@ async def chat(
         )
 
     # Get or create onboarding state
-    conversation_id = payload.conversation_id or str(uuid4())
+    # First message won't have conversation_id - generate new one
+    # If provided, validate UUID format (PostgreSQL requires valid UUID format)
+    if payload.conversation_id:
+        # Validate UUID format if provided
+        if not _is_valid_uuid(payload.conversation_id):
+            conversation_id = str(uuid4())
+        else:
+            conversation_id = payload.conversation_id
+    else:
+        # First message - generate new conversation ID
+        conversation_id = str(uuid4())
     
     stmt = select(OnboardingState).where(
         OnboardingState.conversation_id == conversation_id,
