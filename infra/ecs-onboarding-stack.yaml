@@ -221,10 +221,12 @@ Resources:
 
   AutoScalingTarget:
     Type: AWS::ApplicationAutoScaling::ScalableTarget
+    DependsOn:
+      - Service
     Properties:
       MaxCapacity: 50
-      MinCapacity: 5
-      ResourceId: !Sub "service/${Cluster}/${AppName}-service"
+      MinCapacity: 1
+      ResourceId: !Sub "service/${AppName}-cluster/${AppName}-service"
       RoleARN: !GetAtt AutoScalingRole.Arn
       ScalableDimension: ecs:service:DesiredCount
       ServiceNamespace: ecs
@@ -272,7 +274,6 @@ Resources:
     Type: AWS::ECS::Service
     DependsOn:
       - Listener
-      - AutoScalingTarget
     Properties:
       ServiceName: !Sub "${AppName}-service"
       Cluster: !Ref Cluster
