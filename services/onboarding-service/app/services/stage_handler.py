@@ -135,8 +135,6 @@ Keep your responses concise and friendly."""
                 try:
                     brand_data = await self.brandfetch_client.fetch_brand(
                         extracted_url,
-                        conversation_id=state.conversation_id,
-                        tenant_id=self.user.tenant_id,
                         auth_token=auth_token,
                     )
                     

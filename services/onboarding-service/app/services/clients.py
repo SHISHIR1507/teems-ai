@@ -62,9 +62,7 @@ class BrandfetchClient:
 
     async def fetch_brand(
         self, 
-        url: str, 
-        conversation_id: str | None = None, 
-        tenant_id: str | None = None,
+        url: str,
         auth_token: str | None = None
     ) -> dict[str, Any]:
         """Call Brandfetch API to fetch brand information."""
@@ -78,8 +76,6 @@ class BrandfetchClient:
                 json={
                     "url": url,
                     "force_refresh": False,
-                    "conversation_id": conversation_id,
-                    "tenant_id": tenant_id,
                 },
                 headers=headers,
             )
