@@ -12,6 +12,7 @@ from ..schemas.agent import (
     AgentAssignmentRequest,
     AgentAssignmentResponse,
     AgentCreate,
+    AgentUpdate,
     AgentListItem,
     AgentListResponse,
     AgentResponse,
