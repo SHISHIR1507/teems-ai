@@ -1,7 +1,7 @@
 from typing import Annotated
 from uuid import uuid4, UUID as UUIDType
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -36,6 +36,7 @@ def _is_valid_uuid(value: str) -> bool:
 @router.post("", response_model=ChatResponse, summary="Chat endpoint for onboarding flow")
 async def chat(
     payload: ChatRequest,
+    request: Request,
     session: Annotated[AsyncSession, Depends(get_session)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
     llm_service: Annotated[LLMService, Depends(get_llm_service_dep)],
@@ -96,6 +97,12 @@ async def chat(
     session.add(user_message)
     await session.flush()
 
+    # Extract auth token from request for service-to-service calls
+    auth_token = None
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        auth_token = auth_header[7:]  # Remove "Bearer " prefix
+
     # Create stage handler
     handler = StageHandler(
         session=session,
@@ -112,7 +119,7 @@ async def chat(
 
     if state.current_stage == "brand_discovery":
         response_message, stage_completed = await handler.handle_brand_discovery(
-            state, payload.message
+            state, payload.message, auth_token=auth_token
         )
     elif state.current_stage == "suggested_teammates":
         response_message, stage_completed = await handler.handle_suggested_teammates(

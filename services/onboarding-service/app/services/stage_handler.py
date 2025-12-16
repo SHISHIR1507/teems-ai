@@ -1,4 +1,6 @@
+import re
 from typing import Any
+from urllib.parse import urlparse
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -30,6 +32,33 @@ class StageHandler:
         self.publisher = publisher
         self.user = user
 
+    @staticmethod
+    def _extract_url_from_message(message: str) -> str | None:
+        """Extract URL from user message that might contain extra text."""
+        if not message or not message.strip():
+            return None
+        
+        # Pattern to match URLs (http/https or domain patterns)
+        # This pattern matches:
+        # - http:// or https:// URLs
+        # - Domain patterns like example.com, www.example.com, subdomain.example.com
+        url_patterns = [
+            r'https?://[^\s<>"\'\)]+',  # Full URLs with protocol
+            r'(?:^|\s)(?:www\.)?[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+(?:[/?#][^\s<>"\'\)]*)?',  # Domain patterns
+        ]
+        
+        for pattern in url_patterns:
+            matches = re.finditer(pattern, message, re.IGNORECASE)
+            for match in matches:
+                candidate = match.group(0).strip()
+                # Clean up any trailing punctuation that's not part of URL
+                candidate = candidate.rstrip('.,;:!?')
+                # Basic validation - check if it looks like a domain/URL
+                if candidate and (candidate.startswith(('http://', 'https://')) or '.' in candidate):
+                    return candidate
+        
+        return None
+
     async def get_conversation_history(self, conversation_id: str, limit: int = 20) -> list[dict[str, str]]:
         """Get recent conversation history for context."""
         stmt = (
@@ -58,7 +87,7 @@ class StageHandler:
         await self.session.flush()
 
     async def handle_brand_discovery(
-        self, state: OnboardingState, user_message: str
+        self, state: OnboardingState, user_message: str, auth_token: str | None = None
     ) -> tuple[str, bool]:
         """
         Handle Stage 2: Brand Discovery
@@ -83,27 +112,31 @@ Keep your responses concise and friendly."""
         # Generate LLM response
         llm_response = await self.llm_service.generate(messages)
 
-        # Check if user message looks like a URL
-        is_valid, error_msg = BrandfetchClient.validate_url(user_message)
+        # Extract URL from user message (might contain extra text like "My website is teems.ai")
+        extracted_url = self._extract_url_from_message(user_message)
         
-        if is_valid:
-            # Extract domain from URL
-            from urllib.parse import urlparse
-            url_input = user_message.strip()
-            if not url_input.startswith(("http://", "https://")):
-                url_input = "https://" + url_input
-            parsed = urlparse(url_input)
-            domain = parsed.netloc or parsed.path.split("/")[0]
-            if domain.startswith("www."):
-                domain = domain[4:]
+        if extracted_url:
+            # Validate the extracted URL
+            is_valid, error_msg = BrandfetchClient.validate_url(extracted_url)
+            
+            if is_valid:
+                # Extract domain from URL
+                url_input = extracted_url.strip()
+                if not url_input.startswith(("http://", "https://")):
+                    url_input = "https://" + url_input
+                parsed = urlparse(url_input)
+                domain = parsed.netloc or parsed.path.split("/")[0]
+                if domain.startswith("www."):
+                    domain = domain[4:]
 
-            # Call Brandfetch API
-            try:
-                brand_data = await self.brandfetch_client.fetch_brand(
-                    user_message,
-                    conversation_id=state.conversation_id,
-                    tenant_id=self.user.tenant_id,
-                )
+                # Call Brandfetch API
+                try:
+                    brand_data = await self.brandfetch_client.fetch_brand(
+                        extracted_url,
+                        conversation_id=state.conversation_id,
+                        tenant_id=self.user.tenant_id,
+                        auth_token=auth_token,
+                    )
                 
                 # Update state
                 state.brand_domain = domain
@@ -131,13 +164,13 @@ Keep your responses concise and friendly."""
                 error_response = f"I encountered an error fetching your brand information. Could you please provide your website URL again? Example: teems.ai"
                 await self.save_message(state.conversation_id, "assistant", error_response, "brand_discovery")
                 return error_response, False
-        else:
-            # Invalid URL - use LLM response but guide user
-            response = llm_response
-            if "example" not in response.lower() and "teems.ai" not in response.lower():
-                response += " For example, you could provide a URL like teems.ai"
-            await self.save_message(state.conversation_id, "assistant", response, "brand_discovery")
-            return response, False
+        
+        # No URL found or invalid URL - use LLM response but guide user
+        response = llm_response
+        if "example" not in response.lower() and "teems.ai" not in response.lower():
+            response += " For example, you could provide a URL like teems.ai"
+        await self.save_message(state.conversation_id, "assistant", response, "brand_discovery")
+        return response, False
 
     async def handle_suggested_teammates(
         self, state: OnboardingState, user_message: str

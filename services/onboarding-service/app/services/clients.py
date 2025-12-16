@@ -60,8 +60,18 @@ class BrandfetchClient:
         except Exception as e:
             return False, f"Invalid URL format: {str(e)}"
 
-    async def fetch_brand(self, url: str, conversation_id: str | None = None, tenant_id: str | None = None) -> dict[str, Any]:
+    async def fetch_brand(
+        self, 
+        url: str, 
+        conversation_id: str | None = None, 
+        tenant_id: str | None = None,
+        auth_token: str | None = None
+    ) -> dict[str, Any]:
         """Call Brandfetch API to fetch brand information."""
+        headers = {}
+        if auth_token:
+            headers["Authorization"] = f"Bearer {auth_token}"
+        
         try:
             response = await self._client.post(
                 f"{self.base_url}/brands/fetch",
@@ -71,6 +81,7 @@ class BrandfetchClient:
                     "conversation_id": conversation_id,
                     "tenant_id": tenant_id,
                 },
+                headers=headers,
             )
             response.raise_for_status()
             return response.json()
