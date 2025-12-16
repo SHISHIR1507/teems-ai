@@ -2,6 +2,8 @@ import re
 from typing import Any
 from urllib.parse import urlparse
 
+from fastapi import HTTPException
+from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -160,7 +162,15 @@ Keep your responses concise and friendly."""
                     response = f"Great! I've fetched your brand information for {domain}. Now let's set up your team."
                     await self.save_message(state.conversation_id, "assistant", response, "brand_discovery")
                     return response, True
+                except HTTPException:
+                    # Re-raise HTTPExceptions so FastAPI handles them properly
+                    raise
                 except Exception as e:
+                    # Log the actual error for debugging
+                    logger.error(
+                        f"Error fetching brand information for URL {extracted_url}: {type(e).__name__}: {e}",
+                        exc_info=True
+                    )
                     error_response = f"I encountered an error fetching your brand information. Could you please provide your website URL again? Example: teems.ai"
                     await self.save_message(state.conversation_id, "assistant", error_response, "brand_discovery")
                     return error_response, False
