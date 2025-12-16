@@ -140,7 +140,7 @@ async def chat(
         # Unknown stage, reset to brand discovery
         state.current_stage = "brand_discovery"
         response_message, stage_completed = await handler.handle_brand_discovery(
-            state, payload.message
+            state, payload.message, auth_token=auth_token
         )
 
     # Commit changes

@@ -137,33 +137,33 @@ Keep your responses concise and friendly."""
                         tenant_id=self.user.tenant_id,
                         auth_token=auth_token,
                     )
-                
-                # Update state
-                state.brand_domain = domain
-                state.current_stage = "suggested_teammates"
-                
-                # Publish event
-                channel = f"{self.settings.onboarding_channel_prefix}:{self.user.tenant_id}"
-                await self.publisher.publish(
-                    channel,
-                    {
-                        "type": "brandfetch.completed",
-                        "step": "brand_discovery",
-                        "next_step": "suggested_teammates",
-                        "tenant_id": self.user.tenant_id,
-                        "conversation_id": state.conversation_id,
-                        "domain": brand_data.get("domain"),
-                        "name": brand_data.get("name"),
-                    },
-                )
+                    
+                    # Update state
+                    state.brand_domain = domain
+                    state.current_stage = "suggested_teammates"
+                    
+                    # Publish event
+                    channel = f"{self.settings.onboarding_channel_prefix}:{self.user.tenant_id}"
+                    await self.publisher.publish(
+                        channel,
+                        {
+                            "type": "brandfetch.completed",
+                            "step": "brand_discovery",
+                            "next_step": "suggested_teammates",
+                            "tenant_id": self.user.tenant_id,
+                            "conversation_id": state.conversation_id,
+                            "domain": brand_data.get("domain"),
+                            "name": brand_data.get("name"),
+                        },
+                    )
 
-                response = f"Great! I've fetched your brand information for {domain}. Now let's set up your team."
-                await self.save_message(state.conversation_id, "assistant", response, "brand_discovery")
-                return response, True
-            except Exception as e:
-                error_response = f"I encountered an error fetching your brand information. Could you please provide your website URL again? Example: teems.ai"
-                await self.save_message(state.conversation_id, "assistant", error_response, "brand_discovery")
-                return error_response, False
+                    response = f"Great! I've fetched your brand information for {domain}. Now let's set up your team."
+                    await self.save_message(state.conversation_id, "assistant", response, "brand_discovery")
+                    return response, True
+                except Exception as e:
+                    error_response = f"I encountered an error fetching your brand information. Could you please provide your website URL again? Example: teems.ai"
+                    await self.save_message(state.conversation_id, "assistant", error_response, "brand_discovery")
+                    return error_response, False
         
         # No URL found or invalid URL - use LLM response but guide user
         response = llm_response
