@@ -68,7 +68,7 @@ action_items = [
 
 # Embed all action items once
 embeddings = model.encode(action_items, convert_to_numpy=True)
-from eva_core.schemas.rag import RecommendationItem
+from ..schemas.rag import RecommendationItem
 def recommend_actions(query: str, k: int = 3, threshold: float = 0.25) -> list[RecommendationItem]:
     
     # Encode user query

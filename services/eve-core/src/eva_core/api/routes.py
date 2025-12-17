@@ -11,7 +11,13 @@ from ..dependencies import (
     get_llm_factory_dep,
     get_publisher_dep,
     get_settings_dep,
+
+    get_message_service_dep,  
+    get_query_rewriter_dep,   
 )
+from ..services.message_service import MessageService  
+from ..services.query_rewriter import QueryRewriterService  
+
 from ..schemas.rag import ChatRequest, ChatResponse, DocumentIngestRequest, DocumentIngestResponse
 from ..services.chunker import extract_text_from_upload
 from ..services.embedding import EmbeddingProvider
@@ -28,8 +34,11 @@ def get_rag_service(
     embedder: EmbeddingProvider = Depends(get_embedding_dep),
     llm_factory: LLMFactory = Depends(get_llm_factory_dep),
     publisher: EventPublisher = Depends(get_publisher_dep),
+
+    message_service: MessageService = Depends(get_message_service_dep),
+    query_rewriter: QueryRewriterService = Depends(get_query_rewriter_dep),
 ) -> RAGService:
-    return RAGService(session, settings, embedder, llm_factory, publisher)
+    return RAGService(session, settings, embedder, llm_factory, publisher, message_service, query_rewriter)
 
 
 @router.get("/health", tags=["health"])

@@ -6,6 +6,10 @@ from redis.asyncio import Redis
 from .services.embedding import EmbeddingProvider, get_embedding_provider
 from .services.llm import LLMFactory
 from .events import EventPublisher
+from .services.message_service import MessageService
+from .services.query_rewriter import QueryRewriterService
+from sqlalchemy.ext.asyncio import AsyncSession
+
 
 _settings = get_settings()
 _embedder = get_embedding_provider(_settings)
@@ -42,3 +46,12 @@ async def get_publisher_dep(redis: Redis | None = Depends(get_redis_dep)) -> Eve
         _publisher = EventPublisher(redis)
     return _publisher
 
+async def get_message_service_dep(
+    session: AsyncSession = Depends(get_session),
+) -> MessageService:
+    return MessageService(session)
+
+async def get_query_rewriter_dep(
+    message_service: MessageService = Depends(get_message_service_dep),
+) -> QueryRewriterService:
+    return QueryRewriterService(message_service)

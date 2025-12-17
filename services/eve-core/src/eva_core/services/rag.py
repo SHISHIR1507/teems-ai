@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import time
+import uuid
 from typing import Any
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,13 +17,14 @@ from ..schemas.rag import (
     DocumentIngestRequest,
     DocumentIngestResponse,
     SourceChunk,
-    RecommendationItem,
 )
 from .chunker import chunk_text
 from .embedding import EmbeddingProvider
 from .llm import LLMFactory
 
 from .recommendations import recommend_actions
+from .message_service import MessageService
+from .query_rewriter import QueryRewriterService
 
 
 class RAGService:
@@ -32,12 +35,16 @@ class RAGService:
         embedder: EmbeddingProvider,
         llm_factory: LLMFactory,
         publisher: EventPublisher,
+        message_service: MessageService,  
+        query_rewriter: QueryRewriterService,  
     ) -> None:
         self.session = session
         self.settings = settings
         self.embedder = embedder
         self.llm_factory = llm_factory
         self.publisher = publisher
+        self.message_service = message_service
+        self.query_rewriter = query_rewriter
 
     async def ingest_text(self, payload: DocumentIngestRequest) -> DocumentIngestResponse:
         chunks = chunk_text(payload.text, self.settings.chunk_size, self.settings.chunk_overlap)
@@ -78,10 +85,73 @@ class RAGService:
         return DocumentIngestResponse(document_id=str(document.id), chunks_created=len(chunk_models))
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
-        query_vector = await self.embedder.embed_one(request.query)
+        rewrite_result = await self.query_rewriter.rewrite_query(
+            original_query=request.query,
+            tenant_id=request.tenant_id,
+            conversation_id=request.conversation_id,
+            limit=3
+        )
+        
+        transformed_query = rewrite_result["rewritten_query"]
+        needs_internet = rewrite_result["needs_internet"]
+
+        if not request.conversation_id or request.conversation_id == "string":
+            conversation_id = str(uuid.uuid4())
+            print(f"Generated new conversation_id: {conversation_id}")
+
+        else:
+            conversation_id = request.conversation_id
+            print(f"Using provided conversation_id: {conversation_id}")
+
+        
+        print(f"DEBUG: Will create conversation_id = {conversation_id}")
+        print(f"DEBUG: tenant_id from request = {request.tenant_id}")
+    
+        from ..models.conversation import Conversation
+        from datetime import datetime
+        conv_stmt = select(Conversation).where(Conversation.id == conversation_id)
+        result = await self.session.execute(conv_stmt)
+        existing = result.scalar_one_or_none()
+        
+        if existing:
+            print(f"Conversation already exists: {conversation_id}")
+        else:
+            print(f"Creating new conversation: {conversation_id}")
+            
+            # Create conversation record first
+            conversation = Conversation(
+                id=conversation_id,
+                tenant_id=request.tenant_id,
+                status="active",
+                created_at=datetime.utcnow()
+            )
+            self.session.add(conversation)
+            try:
+                await self.session.flush()
+                print(f"Conversation flushed to DB")
+            except Exception as e:
+                print(f"Flush failed: {e}")
+                raise
+
+        user_message = await self.message_service.save_message(
+            tenant_id=request.tenant_id,
+            conversation_id=conversation_id,
+            role="user",
+            content=request.query,  # Original query
+            rewritten_content=transformed_query,  # Transformed query
+            provider_metadata={  # Save needs_internet flag
+                "needs_internet": needs_internet,
+                "rewrite_info": {
+                    "original_query": request.query[:100] if request.query else "",
+                    "transformed_query": transformed_query[:100] if transformed_query else "",
+                }
+            }
+        )
+
+        query_vector = await self.embedder.embed_one(transformed_query)
         top_k = request.top_k or self.settings.top_k
 
-        stmt = (
+        rag_stmt = (
             select(
                 DocumentChunk,
                 Document,
@@ -93,10 +163,12 @@ class RAGService:
             .limit(top_k)
         )
 
-        rows = (await self.session.execute(stmt)).all()
+        rows = (await self.session.execute(rag_stmt)).all()
+        
+        #if no relevant context found
         if not rows:
-            recommendations = recommend_actions(request.query, k=3, threshold=0.25)
-            return ChatResponse(
+            recommendations = recommend_actions(transformed_query, k=3, threshold=0.25)
+            response = ChatResponse(
                 answer="I could not find relevant context for your question.",
                 sources=[],
                 provider=request.llm_provider or self.settings.default_llm_provider,
@@ -105,7 +177,18 @@ class RAGService:
                 latency_ms=0,
                 recommendations=recommendations,
             )
+            
+            # Save assistant response
+            await self._save_assistant_response(
+                conversation_id=conversation_id,
+                tenant_id=request.tenant_id,
+                answer=response.answer
+            )
+            
+            await self.session.commit()
+            return response
 
+        # ================== PROCESS RAG RESULTS ==================
         context_blocks = []
         sources: list[SourceChunk] = []
         for chunk, document, score in rows:
@@ -191,7 +274,7 @@ When responding:
                 "content": "Context:\n" + "\n\n".join(context_blocks),
             }
         )
-        messages.append({"role": "user", "content": request.query})
+        messages.append({"role": "user", "content": transformed_query})
 
         provider = request.llm_provider or self.settings.default_llm_provider
         model = request.llm_model or self.settings.default_llm_model
@@ -201,7 +284,7 @@ When responding:
         answer = await llm_client.generate(messages, model=model)
         latency_ms = int((time.perf_counter() - start) * 1000)
 
-        recommendations = recommend_actions(request.query, k=3, threshold=0.25)
+        recommendations = recommend_actions(transformed_query, k=3, threshold=0.25)
 
         response = ChatResponse(
             answer=answer,
@@ -212,6 +295,15 @@ When responding:
             generated_at=self._now(),
             recommendations=recommendations,
         )
+
+        await self._save_assistant_response(
+            conversation_id=conversation_id,
+            tenant_id=request.tenant_id,
+            answer=answer
+        )
+        
+        await self.session.commit()
+        
         if request.conversation_id:
             await self.publisher.publish(
                 f"conversation:{request.conversation_id}",
@@ -223,10 +315,23 @@ When responding:
                 },
             )
         return response
+    
+    async def _save_assistant_response(self, conversation_id: str, tenant_id: str, answer: str):
+        """Helper to save assistant response"""
+        assistant_message = await self.message_service.save_message(
+            tenant_id=tenant_id,
+            conversation_id=conversation_id,
+            role="assistant",
+            content=answer,
+            rewritten_content=None,
+            provider_metadata={
+                "response_info": {
+                    "timestamp": datetime.now(timezone.utc).isoformat()
+                }
+            }
+        )
+        return assistant_message
 
     @staticmethod
     def _now():
-        from datetime import datetime, timezone
-
         return datetime.now(timezone.utc)
-

@@ -13,8 +13,8 @@ from ..database.base import Base
 class Conversation(Base):
     __tablename__ = "conversations"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    id = Column(String(128), primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String(128), nullable=False, index=True)
     user_id = Column(UUID(as_uuid=True), nullable=True, index=True)
     title = Column(Text, nullable=True)
     status = Column(String(32), default="active", nullable=False)
@@ -28,15 +28,17 @@ class Conversation(Base):
 class Message(Base):
     __tablename__ = "messages"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    tenant_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    conversation_id = Column(UUID(as_uuid=True), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
+    id = Column(String(128), primary_key=True, default=lambda: str(uuid.uuid4()))
+    tenant_id = Column(String(128), nullable=False, index=True)
+    conversation_id = Column(String(128), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False)
     role = Column(String(32), nullable=False)
     content = Column(Text, nullable=True)
     content_json = Column(JSON, nullable=True)
     provider_metadata = Column(JSON, nullable=True)
     token_count = Column(String(32), nullable=True)
     created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    rewritten_content = Column(Text, nullable=True)  # For storing transformed query
+
 
     conversation = relationship("Conversation", back_populates="messages")
 
