@@ -175,6 +175,8 @@ class RAGService:
                 model=request.llm_model or self.settings.default_llm_model,
                 generated_at=self._now(),
                 latency_ms=0,
+                conversation_id=conversation_id,  
+                needs_internet=needs_internet,
                 recommendations=recommendations,
             )
             
@@ -294,6 +296,8 @@ When responding:
             latency_ms=latency_ms,
             generated_at=self._now(),
             recommendations=recommendations,
+            conversation_id=conversation_id,
+            needs_internet=needs_internet,
         )
 
         await self._save_assistant_response(

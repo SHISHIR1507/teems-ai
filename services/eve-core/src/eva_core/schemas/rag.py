@@ -59,6 +59,8 @@ class ChatResponse(BaseModel):
     model: str
     latency_ms: int | None = None
     generated_at: datetime
+    conversation_id: str = Field(..., description="Current conversation identifier")
+    needs_internet: bool = Field(default=False, description="Whether answering requires internet research")
 
     recommendations: list[RecommendationItem] = Field(  
         default_factory=list,
