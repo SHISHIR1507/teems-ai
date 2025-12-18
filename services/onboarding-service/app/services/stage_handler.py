@@ -18,6 +18,25 @@ from ..auth import AuthenticatedUser
 class StageHandler:
     """Handles stage-specific logic for onboarding flow."""
 
+    # Base system prompt with Eve's brand identity
+    BASE_SYSTEM_PROMPT = """You are Eve — the Chief of Staff of the Teems.ai ecosystem.
+
+Tone Guidelines:
+- Calm and reassuring
+- Friendly but not overly casual
+- Smart, structured, and highly competent
+- Professional and confident
+- Clear and concise
+- Non-intrusive and premium
+- Never salesy, never overwhelming
+- Never condescending
+
+When responding:
+- Be concise.
+- Be structured.
+- Guide the user smoothly.
+- Keep the user's mental effort at a minimum."""
+
     def __init__(
         self,
         session: AsyncSession,
@@ -95,20 +114,71 @@ class StageHandler:
         Handle Stage 2: Brand Discovery
         Returns: (response_message, stage_completed)
         """
-        system_prompt = """You are a friendly onboarding assistant helping users set up their workspace.
+        # Check if brandfetch has already been completed (waiting for user confirmation)
+        if state.brand_domain:
+            # Brandfetch completed, waiting for user confirmation
+            system_prompt = f"""{self.BASE_SYSTEM_PROMPT}
+
+Current stage: Brand Discovery (Confirmation)
+
+The brand information has been fetched. Your task is to confirm with the user that the brand data looks correct and ask if they're ready to continue to the next step.
+
+When the user indicates they're ready (says things like "yes", "continue", "next", "looks good", "ready"), acknowledge and move to the next step."""
+
+            history = await self.get_conversation_history(state.conversation_id)
+            messages = [{"role": "system", "content": system_prompt}]
+            messages.extend(history[-10:])
+            messages.append({"role": "user", "content": user_message})
+
+            # Generate LLM response
+            llm_response = await self.llm_service.generate(messages)
+
+            # Check if user is ready to continue
+            user_lower = user_message.lower()
+            continue_keywords = ["ready", "continue", "next", "yes", "looks good", "correct", "let's go", "sure", "ok", "okay"]
+            
+            if any(keyword in user_lower for keyword in continue_keywords):
+                state.current_stage = "suggested_teammates"
+                response = "Perfect! Let's set up your team."
+                await self.save_message(state.conversation_id, "assistant", response, "brand_discovery")
+                
+                # Publish event for frontend
+                channel = f"{self.settings.onboarding_channel_prefix}:{self.user.tenant_id}"
+                await self.publisher.publish(
+                    channel,
+                    {
+                        "type": "stage.completed",
+                        "step": "brand_discovery",
+                        "next_step": "suggested_teammates",
+                        "tenant_id": self.user.tenant_id,
+                        "conversation_id": state.conversation_id,
+                    },
+                )
+                return response, True
+
+            await self.save_message(state.conversation_id, "assistant", llm_response, "brand_discovery")
+            return llm_response, False
+
+        # Brandfetch not yet completed - ask for URL
+        system_prompt = f"""{self.BASE_SYSTEM_PROMPT}
 
 Current stage: Brand Discovery
 
 Your task is to ask the user for their website URL. Once they provide a valid website URL (like teems.ai), acknowledge it and let them know we're fetching their brand information.
 
-If they provide an invalid URL, politely ask them to provide a valid website URL and give them an example like "teems.ai".
-
-Keep your responses concise and friendly."""
+If they provide an invalid URL, politely ask them to provide a valid website URL and give them an example like "teems.ai"."""
 
         # Get conversation history
         history = await self.get_conversation_history(state.conversation_id)
         messages = [{"role": "system", "content": system_prompt}]
-        messages.extend(history)
+        
+        # Add initial message if first in stage
+        if not history or history[-1].get("role") != "assistant" or "website" not in history[-1].get("content", "").lower():
+            initial_message = "Let's start by discovering your brand. Please provide your website URL."
+            messages.append({"role": "assistant", "content": initial_message})
+            await self.save_message(state.conversation_id, "assistant", initial_message, "brand_discovery")
+        
+        messages.extend(history[-10:])
         messages.append({"role": "user", "content": user_message})
 
         # Generate LLM response
@@ -138,18 +208,16 @@ Keep your responses concise and friendly."""
                         auth_token=auth_token,
                     )
                     
-                    # Update state
+                    # Update state with domain but DON'T change stage yet (wait for confirmation)
                     state.brand_domain = domain
-                    state.current_stage = "suggested_teammates"
                     
-                    # Publish event
+                    # Publish event for frontend to display brand data
                     channel = f"{self.settings.onboarding_channel_prefix}:{self.user.tenant_id}"
                     await self.publisher.publish(
                         channel,
                         {
                             "type": "brandfetch.completed",
                             "step": "brand_discovery",
-                            "next_step": "suggested_teammates",
                             "tenant_id": self.user.tenant_id,
                             "conversation_id": state.conversation_id,
                             "domain": brand_data.get("domain"),
@@ -157,9 +225,9 @@ Keep your responses concise and friendly."""
                         },
                     )
 
-                    response = f"Great! I've fetched your brand information for {domain}. Now let's set up your team."
+                    response = f"I've fetched your brand information for {domain}. Please review the details and let me know if everything looks correct, or if you'd like to continue."
                     await self.save_message(state.conversation_id, "assistant", response, "brand_discovery")
-                    return response, True
+                    return response, False  # Stage not completed yet - waiting for confirmation
                 except HTTPException:
                     # Re-raise HTTPExceptions so FastAPI handles them properly
                     raise
@@ -188,15 +256,13 @@ Keep your responses concise and friendly."""
         Just guides conversation - frontend handles teammate selection
         Returns: (response_message, stage_completed)
         """
-        system_prompt = """You are a friendly onboarding assistant helping users set up their workspace.
+        system_prompt = f"""{self.BASE_SYSTEM_PROMPT}
 
 Current stage: Suggested Teammates
 
 Your task is to introduce the teammate selection step and let the user know they can select teammates who will be helpful to them now or in the future. They can add or remove teammates later.
 
-When the user indicates they understand or are ready to continue (says things like "got it", "continue", "next", "ready"), acknowledge and move to the next step.
-
-Keep responses concise and friendly."""
+When the user indicates they understand or are ready to continue (says things like "got it", "continue", "next", "ready"), acknowledge and move to the next step."""
 
         history = await self.get_conversation_history(state.conversation_id)
         messages = [{"role": "system", "content": system_prompt}]
@@ -247,15 +313,13 @@ Keep responses concise and friendly."""
         Just guides conversation - frontend handles integration connections
         Returns: (response_message, stage_completed)
         """
-        system_prompt = """You are a friendly onboarding assistant helping users set up their workspace.
+        system_prompt = f"""{self.BASE_SYSTEM_PROMPT}
 
 Current stage: Connect Your World
 
 Your task is to introduce the integration connection step. Let the user know they can connect their applications so teammates can work seamlessly. They can connect or remove integrations later.
 
-When the user indicates they understand or are ready (says things like "got it", "continue", "next", "skip", "later"), acknowledge and move to the next step.
-
-Keep responses concise and friendly."""
+When the user indicates they understand or are ready (says things like "got it", "continue", "next", "skip", "later"), acknowledge and move to the next step."""
 
         history = await self.get_conversation_history(state.conversation_id)
         messages = [{"role": "system", "content": system_prompt}]
@@ -307,15 +371,13 @@ Keep responses concise and friendly."""
         Just guides conversation - frontend handles notification preferences
         Returns: (response_message, stage_completed)
         """
-        system_prompt = """You are a friendly onboarding assistant helping users set up their workspace.
+        system_prompt = f"""{self.BASE_SYSTEM_PROMPT}
 
 Current stage: Personalization
 
 Your task is to introduce the notification preferences step. Let the user know they can select their preferred notification channels. This is the last step.
 
-When the user indicates they understand or are ready (says things like "got it", "continue", "done", "ready"), acknowledge and complete onboarding.
-
-Keep responses concise and friendly."""
+When the user indicates they understand or are ready (says things like "got it", "continue", "done", "ready"), acknowledge and complete onboarding."""
 
         history = await self.get_conversation_history(state.conversation_id)
         messages = [{"role": "system", "content": system_prompt}]
