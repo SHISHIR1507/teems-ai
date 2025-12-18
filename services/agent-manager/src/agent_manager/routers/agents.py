@@ -105,18 +105,34 @@ async def create_agent(
 @router.get("/{agent_id}", response_model=AgentResponse, summary="Get agent by ID")
 async def get_agent(
     agent_id: UUID,
+    user: AuthenticatedUser = Depends(require_tenant()),
     db: AsyncSession = Depends(get_db_session),
 ):
     """Get detailed information about a specific agent."""
-    
+
     query = select(Agent).where(Agent.id == agent_id)
     result = await db.execute(query)
     agent = result.scalar_one_or_none()
-    
+
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    
-    return AgentResponse.from_orm(agent)
+
+    # Determine whether this agent is assigned to the current user in this tenant,
+    # mirroring the semantics used in the list endpoint.
+    assignment_query = select(AgentAssignment.agent_id).where(
+        and_(
+            AgentAssignment.agent_id == agent.id,
+            AgentAssignment.tenant_id == user.tenant_id,
+            AgentAssignment.user_id == user.sub,
+        )
+    )
+    assignment_result = await db.execute(assignment_query)
+    is_assigned = assignment_result.scalar_one_or_none() is not None
+
+    response = AgentResponse.from_orm(agent)
+    # Pydantic model exposes this field; see AgentResponse in schemas/agent.py.
+    response.is_assigned_to_current_user = is_assigned  # type: ignore[attr-defined]
+    return response
 
 
 @router.put("/{agent_id}", response_model=AgentResponse, summary="Update an existing agent")

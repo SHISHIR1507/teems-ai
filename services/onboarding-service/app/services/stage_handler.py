@@ -37,6 +37,18 @@ When responding:
 - Guide the user smoothly.
 - Keep the user's mental effort at a minimum."""
 
+    # Expanded keywords for stage completion confirmation
+    CONTINUE_KEYWORDS = [
+        "ready", "continue", "next", "yes", "got it", "sure", "ok", "okay",
+        "let's go", "proceed", "sounds good", "looks good", "correct",
+        "that's good", "good to go", "all set", "all done", "done",
+        "complete", "completed", "finished", "that's all", "that's it",
+        "perfect", "great", "awesome", "excellent"
+    ]
+    
+    # Additional keywords for skipping stages
+    SKIP_KEYWORDS = ["skip", "later", "not now", "pass", "maybe later"]
+
     def __init__(
         self,
         session: AsyncSession,
@@ -133,12 +145,12 @@ When the user indicates they're ready (says things like "yes", "continue", "next
             # Generate LLM response
             llm_response = await self.llm_service.generate(messages)
 
-            # Check if user is ready to continue
-            user_lower = user_message.lower()
-            continue_keywords = ["ready", "continue", "next", "yes", "looks good", "correct", "let's go", "sure", "ok", "okay"]
+            # Check if user is ready to continue - expanded keywords
+            user_lower = user_message.lower().strip()
             
-            if any(keyword in user_lower for keyword in continue_keywords):
+            if any(keyword in user_lower for keyword in self.CONTINUE_KEYWORDS):
                 state.current_stage = "suggested_teammates"
+                await self.session.flush()  # Ensure state change is tracked
                 response = "Perfect! Let's set up your team."
                 await self.save_message(state.conversation_id, "assistant", response, "brand_discovery")
                 
@@ -156,6 +168,7 @@ When the user indicates they're ready (says things like "yes", "continue", "next
                 )
                 return response, True
 
+            # Not ready - stage not completed
             await self.save_message(state.conversation_id, "assistant", llm_response, "brand_discovery")
             return llm_response, False
 
@@ -279,12 +292,12 @@ When the user indicates they understand or are ready to continue (says things li
         # Generate LLM response
         llm_response = await self.llm_service.generate(messages)
 
-        # Check if user is ready to continue
-        user_lower = user_message.lower()
-        continue_keywords = ["ready", "continue", "next", "got it", "yes", "let's go", "sure"]
+        # Check if user is ready to continue - expanded keywords
+        user_lower = user_message.lower().strip()
         
-        if any(keyword in user_lower for keyword in continue_keywords):
+        if any(keyword in user_lower for keyword in self.CONTINUE_KEYWORDS):
             state.current_stage = "connect_world"
+            await self.session.flush()  # Ensure state change is tracked
             response = "Perfect! Let's continue to connect your applications."
             await self.save_message(state.conversation_id, "assistant", response, "suggested_teammates")
             
@@ -302,6 +315,7 @@ When the user indicates they understand or are ready to continue (says things li
             )
             return response, True
 
+        # Not ready - stage not completed
         await self.save_message(state.conversation_id, "assistant", llm_response, "suggested_teammates")
         return llm_response, False
 
@@ -336,13 +350,12 @@ When the user indicates they understand or are ready (says things like "got it",
         # Generate LLM response
         llm_response = await self.llm_service.generate(messages)
 
-        # Check if user wants to continue/skip
-        user_lower = user_message.lower()
-        continue_keywords = ["ready", "continue", "next", "got it", "yes", "let's go"]
-        skip_keywords = ["skip", "later", "not now", "pass"]
+        # Check if user wants to continue/skip - expanded keywords
+        user_lower = user_message.lower().strip()
         
-        if any(keyword in user_lower for keyword in continue_keywords + skip_keywords):
+        if any(keyword in user_lower for keyword in self.CONTINUE_KEYWORDS + self.SKIP_KEYWORDS):
             state.current_stage = "personalization"
+            await self.session.flush()  # Ensure state change is tracked
             response = "No problem! You can connect your integrations later. Let's move on to personalizing your experience."
             await self.save_message(state.conversation_id, "assistant", response, "connect_world")
             
@@ -360,6 +373,7 @@ When the user indicates they understand or are ready (says things like "got it",
             )
             return response, True
 
+        # Not ready - stage not completed
         await self.save_message(state.conversation_id, "assistant", llm_response, "connect_world")
         return llm_response, False
 
@@ -394,12 +408,12 @@ When the user indicates they understand or are ready (says things like "got it",
         # Generate LLM response
         llm_response = await self.llm_service.generate(messages)
 
-        # Check if user is done
-        user_lower = user_message.lower()
-        done_keywords = ["done", "ready", "continue", "complete", "got it", "finished", "that's all"]
+        # Check if user is done - using expanded keywords
+        user_lower = user_message.lower().strip()
         
-        if any(keyword in user_lower for keyword in done_keywords):
+        if any(keyword in user_lower for keyword in self.CONTINUE_KEYWORDS):
             state.current_stage = "completed"
+            await self.session.flush()  # Ensure state change is tracked
             
             # Publish completion event
             channel = f"{self.settings.onboarding_channel_prefix}:{self.user.tenant_id}"
@@ -416,6 +430,7 @@ When the user indicates they understand or are ready (says things like "got it",
             await self.save_message(state.conversation_id, "assistant", response, "personalization")
             return response, True
 
+        # Not done - stage not completed
         await self.save_message(state.conversation_id, "assistant", llm_response, "personalization")
         return llm_response, False
 

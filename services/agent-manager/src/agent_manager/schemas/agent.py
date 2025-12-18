@@ -66,6 +66,12 @@ class AgentResponse(AgentBase):
     # sample_work_urls: List[str] = Field(default_factory=list)  # Will add when S3 ready
     created_at: datetime
     updated_at: datetime
+    # Keep this aligned with AgentListItem so the detail view also exposes whether
+    # the agent is already assigned to the requesting user.
+    is_assigned_to_current_user: bool = Field(
+        default=False,
+        description="True if this agent is assigned to the requesting user in their tenant",
+    )
     
     class Config:
         from_attributes = True
