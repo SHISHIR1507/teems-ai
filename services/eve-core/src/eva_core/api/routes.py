@@ -66,7 +66,14 @@ async def ingest_file(
     rag_service: RAGService = Depends(get_rag_service),
 ) -> DocumentIngestResponse:
     raw_text = await extract_text_from_upload(file)
-    metadata_dict = json.loads(metadata) if metadata else {}
+    metadata_dict = {}
+    if metadata and metadata.strip():  
+        try:
+            metadata_dict = json.loads(metadata)
+        except json.JSONDecodeError:
+            # Log and use empty dict instead of crashing
+            print(f"WARNING: Invalid JSON metadata: {metadata[:50]}")
+            metadata_dict = {}    
     payload = DocumentIngestRequest(
         tenant_id=user.tenant_id or "",  # validated by require_tenant
         title=title or file.filename,
