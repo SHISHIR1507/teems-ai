@@ -61,7 +61,7 @@ async def chat(
     existing_state_stmt = select(OnboardingState).where(
         OnboardingState.tenant_id == user.tenant_id,
         OnboardingState.user_id == user.sub,
-    ).order_by(OnboardingState.created_at.desc())
+    ).order_by(OnboardingState.created_at.desc()).limit(1)
     existing_result = await session.execute(existing_state_stmt)
     existing_state = existing_result.scalar_one_or_none()
     
