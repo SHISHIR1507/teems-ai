@@ -17,6 +17,16 @@ RUN python -m venv /opt/venv && \
 
 FROM python:3.11-slim
 
+# Install system dependencies required by PyMuPDF, Pillow, OCR, and related libs
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH" \

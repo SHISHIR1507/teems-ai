@@ -55,27 +55,29 @@ async def chat(
         )
 
     # Get or create onboarding state
-    # First message won't have conversation_id - generate new one
-    # If provided, validate UUID format (PostgreSQL requires valid UUID format)
-    if payload.conversation_id:
-        # Validate UUID format if provided
-        if not _is_valid_uuid(payload.conversation_id):
-            conversation_id = str(uuid4())
-        else:
-            conversation_id = payload.conversation_id
-    else:
-        # First message - generate new conversation ID
-        conversation_id = str(uuid4())
-    
-    stmt = select(OnboardingState).where(
-        OnboardingState.conversation_id == conversation_id,
+    # First, try to find existing onboarding state for this user (by tenant_id and user_id)
+    # This ensures users resume their onboarding progress even after logging out/in
+    # Conversation can be new or old - doesn't matter, we use the user's existing state
+    existing_state_stmt = select(OnboardingState).where(
         OnboardingState.tenant_id == user.tenant_id,
-    )
-    result = await session.execute(stmt)
-    state = result.scalar_one_or_none()
-
-    if not state:
-        # Create new onboarding state
+        OnboardingState.user_id == user.sub,
+    ).order_by(OnboardingState.created_at.desc())
+    existing_result = await session.execute(existing_state_stmt)
+    existing_state = existing_result.scalar_one_or_none()
+    
+    # If user has existing onboarding state, use it
+    if existing_state:
+        # Use existing state's conversation_id (conversation can be new or old)
+        conversation_id = existing_state.conversation_id
+        state = existing_state
+    else:
+        # No existing state - create new one
+        # Generate conversation_id (can be from payload or new)
+        if payload.conversation_id and _is_valid_uuid(payload.conversation_id):
+            conversation_id = payload.conversation_id
+        else:
+            conversation_id = str(uuid4())
+        
         state = OnboardingState(
             tenant_id=user.tenant_id,
             user_id=user.sub,

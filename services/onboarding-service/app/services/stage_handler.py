@@ -241,16 +241,22 @@ If they provide an invalid URL, politely ask them to provide a valid website URL
                     response = f"I've fetched your brand information for {domain}. Please review the details and let me know if everything looks correct, or if you'd like to continue."
                     await self.save_message(state.conversation_id, "assistant", response, "brand_discovery")
                     return response, False  # Stage not completed yet - waiting for confirmation
-                except HTTPException:
-                    # Re-raise HTTPExceptions so FastAPI handles them properly
-                    raise
+                except HTTPException as e:
+                    # Handle HTTP exceptions gracefully - log and return user-friendly message
+                    logger.error(
+                        f"Brandfetch API error for URL {extracted_url}: {e.status_code} - {e.detail}",
+                        exc_info=True
+                    )
+                    error_response = "Please check your url again."
+                    await self.save_message(state.conversation_id, "assistant", error_response, "brand_discovery")
+                    return error_response, False
                 except Exception as e:
                     # Log the actual error for debugging
                     logger.error(
                         f"Error fetching brand information for URL {extracted_url}: {type(e).__name__}: {e}",
                         exc_info=True
                     )
-                    error_response = f"I encountered an error fetching your brand information. Could you please provide your website URL again? Example: teems.ai"
+                    error_response = "Please check your url again."
                     await self.save_message(state.conversation_id, "assistant", error_response, "brand_discovery")
                     return error_response, False
         
