@@ -18,6 +18,11 @@ class Settings(BaseSettings):
     cache_ttl_seconds: int = 1800
     onboarding_channel_prefix: str = "onboarding"
 
+    # LLM (AIML API compatible)
+    aiml_api_key: str | None = None
+    aiml_base_url: str = "https://api.aimlapi.com/v1"
+    default_llm_model: str = "openai/gpt-4o-mini"
+
     # Auth0 (to deduce tenant/user from tokens)
     auth0_domain: str = "teems.us.auth0.com"
     auth0_audience: str

@@ -7,6 +7,7 @@ Production-ready FastAPI microservice that fetches brand metadata from Brandfetc
 - Cleans user-provided URLs/domains before calling Brandfetch.
 - Persists responses as JSON so downstream jobs can reuse them.
 - Offers cache-first lookups with optional refresh to manage rate limits.
+- Enriches missing tone-of-voice automatically via AIML LLM (when configured).
 - Ships with Dockerfile and `.env` placeholders for rapid deployment.
 
 ## Quickstart
@@ -27,13 +28,18 @@ Update `.env`/`.env.local` with:
 - `AUTH0_DOMAIN`, `AUTH0_AUDIENCE`, `AUTH0_ALGORITHM` – for JWT verification; tenant_id is read from the token.
 - `REDIS_URL` – required for onboarding pubsub events.
 - Optional overrides: `BRANDFETCH_ENDPOINT`, `REQUEST_TIMEOUT_SECONDS`, `CACHE_TTL_SECONDS`, `ONBOARDING_CHANNEL_PREFIX`, `CORS_ALLOWED_ORIGINS`.
+- LLM (optional, for tone-of-voice generation when Brandfetch doesn’t provide it):
+  - `AIML_API_KEY`
+  - `AIML_BASE_URL` (default `https://api.aimlapi.com/v1`)
+  - `DEFAULT_LLM_MODEL` (default `openai/gpt-4o-mini`)
 
 ## Endpoints
 
 - `GET /health` – readiness probe.
 - `POST /brands/fetch` – Auth required. Body `{ "url": "slack.com", "force_refresh": false, "conversation_id": "..." }`. Tenant/user derived from token. Emits Redis pubsub event on `onboarding:{tenant_id}` with `brandfetch.completed` and includes `conversation_id` (taken from `X-Conversation-Id` header if present, else body).
-- `GET /brands/{domain}?refresh=false` – Auth required. Return cached record, optionally re-fetch from Brandfetch.
+- `GET /brands/{domain}?refresh=false` – Auth required. Return cached record, optionally re-fetch from Brandfetch. On refresh, tone-of-voice is auto-generated if missing and LLM is configured.
 - `GET /brands?limit=20&offset=0` – Paginated list of cached brands.
+- `PATCH /brands/{domain}` – Auth required. Manually update stored brand metadata fields (including tone_of_voice).
 
 All responses include normalized domain plus the full JSON payload we received from Brandfetch.
 

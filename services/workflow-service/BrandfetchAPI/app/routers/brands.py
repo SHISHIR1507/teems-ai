@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
@@ -7,13 +7,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..clients import BrandfetchClient, DomainParsingError
 from ..config import Settings
 from ..database import get_session
-from ..dependencies import (
-    get_publisher_dep,
-    get_settings_dep,
-)
+from ..dependencies import get_llm_service, get_publisher_dep, get_settings_dep
 from ..events import EventPublisher
 from ..models import BrandRecord
-from ..schemas import BrandFetchRequest, BrandFetchResponse, BrandRecordResponse, BrandSummary
+from ..schemas import (
+    BrandFetchRequest,
+    BrandFetchResponse,
+    BrandRecordResponse,
+    BrandSummary,
+    BrandUpdateRequest,
+)
+from ..services.llm import LLMService
 from ..auth import require_tenant, AuthenticatedUser
 
 router = APIRouter(prefix="/brands", tags=["brands"])
@@ -26,9 +30,20 @@ async def get_brandfetch_client(settings: Settings = Depends(get_settings_dep)) 
 def map_record(record: BrandRecord) -> BrandRecordResponse:
     return BrandRecordResponse(
         domain=record.domain,
+        website_url=record.website_url,
         name=record.name,
         description=record.description,
         icon=record.icon,
+        contact_email=record.contact_email,
+        contact_phone=record.contact_phone,
+        contact_address=record.contact_address,
+        instagram_url=record.instagram_url,
+        youtube_url=record.youtube_url,
+        facebook_url=record.facebook_url,
+        industry=record.industry,
+        language=record.language,
+        region=record.region,
+        tone_of_voice=record.tone_of_voice,
         details=record.raw,
         created_at=record.created_at,
         updated_at=record.updated_at,
@@ -42,6 +57,7 @@ async def fetch_brand(
     client: Annotated[BrandfetchClient, Depends(get_brandfetch_client)],
     settings: Annotated[Settings, Depends(get_settings_dep)],
     publisher: Annotated[EventPublisher, Depends(get_publisher_dep)],
+    llm_service: Annotated[LLMService | None, Depends(get_llm_service)],
     user: AuthenticatedUser = Depends(require_tenant()),
     request: Request = None,
 ) -> BrandFetchResponse:
@@ -72,17 +88,42 @@ async def fetch_brand(
         raise
 
     try:
+        mapped = _extract_brand_fields(data)
+        if not mapped.get("tone_of_voice"):
+            mapped["tone_of_voice"] = await _infer_tone_of_voice(llm_service, mapped)
         if existing:
-            existing.name = data.get("name")
-            existing.description = data.get("description")
-            existing.icon = data.get("icon")
+            existing.name = mapped["name"]
+            existing.description = mapped["description"]
+            existing.icon = mapped["icon"]
+            existing.website_url = mapped["website_url"]
+            existing.contact_email = mapped["contact_email"]
+            existing.contact_phone = mapped["contact_phone"]
+            existing.contact_address = mapped["contact_address"]
+            existing.instagram_url = mapped["instagram_url"]
+            existing.youtube_url = mapped["youtube_url"]
+            existing.facebook_url = mapped["facebook_url"]
+            existing.industry = mapped["industry"]
+            existing.language = mapped["language"]
+            existing.region = mapped["region"]
+            existing.tone_of_voice = mapped["tone_of_voice"]
             existing.raw = data
         else:
             existing = BrandRecord(
                 domain=domain,
-                name=data.get("name"),
-                description=data.get("description"),
-                icon=data.get("icon"),
+                name=mapped["name"],
+                description=mapped["description"],
+                icon=mapped["icon"],
+                website_url=mapped["website_url"],
+                contact_email=mapped["contact_email"],
+                contact_phone=mapped["contact_phone"],
+                contact_address=mapped["contact_address"],
+                instagram_url=mapped["instagram_url"],
+                youtube_url=mapped["youtube_url"],
+                facebook_url=mapped["facebook_url"],
+                industry=mapped["industry"],
+                language=mapped["language"],
+                region=mapped["region"],
+                tone_of_voice=mapped["tone_of_voice"],
                 raw=data,
             )
             session.add(existing)
@@ -113,6 +154,7 @@ async def get_brand(
     domain: str,
     session: Annotated[AsyncSession, Depends(get_session)],
     client: Annotated[BrandfetchClient, Depends(get_brandfetch_client)],
+    llm_service: Annotated[LLMService | None, Depends(get_llm_service)],
     refresh: bool = Query(default=False, description="Force refresh even if cached"),
 ) -> BrandRecordResponse:
     try:
@@ -135,21 +177,90 @@ async def get_brand(
         raise
 
     try:
+        mapped = _extract_brand_fields(data)
+        if not mapped.get("tone_of_voice"):
+            mapped["tone_of_voice"] = await _infer_tone_of_voice(llm_service, mapped)
         if record:
-            record.name = data.get("name")
-            record.description = data.get("description")
-            record.icon = data.get("icon")
+            record.name = mapped["name"]
+            record.description = mapped["description"]
+            record.icon = mapped["icon"]
+            record.website_url = mapped["website_url"]
+            record.contact_email = mapped["contact_email"]
+            record.contact_phone = mapped["contact_phone"]
+            record.contact_address = mapped["contact_address"]
+            record.instagram_url = mapped["instagram_url"]
+            record.youtube_url = mapped["youtube_url"]
+            record.facebook_url = mapped["facebook_url"]
+            record.industry = mapped["industry"]
+            record.language = mapped["language"]
+            record.region = mapped["region"]
+            record.tone_of_voice = mapped["tone_of_voice"]
             record.raw = data
         else:
             record = BrandRecord(
                 domain=normalized,
-                name=data.get("name"),
-                description=data.get("description"),
-                icon=data.get("icon"),
+                name=mapped["name"],
+                description=mapped["description"],
+                icon=mapped["icon"],
+                website_url=mapped["website_url"],
+                contact_email=mapped["contact_email"],
+                contact_phone=mapped["contact_phone"],
+                contact_address=mapped["contact_address"],
+                instagram_url=mapped["instagram_url"],
+                youtube_url=mapped["youtube_url"],
+                facebook_url=mapped["facebook_url"],
+                industry=mapped["industry"],
+                language=mapped["language"],
+                region=mapped["region"],
+                tone_of_voice=mapped["tone_of_voice"],
                 raw=data,
             )
             session.add(record)
 
+        await session.commit()
+        await session.refresh(record)
+        return map_record(record)
+    except Exception:
+        await session.rollback()
+        raise
+
+
+@router.patch(
+    "/{domain}",
+    response_model=BrandRecordResponse,
+    summary="Update stored brand metadata fields manually",
+)
+async def update_brand(
+    domain: str,
+    payload: BrandUpdateRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    user: AuthenticatedUser = Depends(require_tenant()),
+) -> BrandRecordResponse:
+    try:
+        normalized = BrandfetchClient._extract_clean_domain(domain)
+    except DomainParsingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+    record = await session.scalar(select(BrandRecord).where(BrandRecord.domain == normalized))
+    if not record:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No cached record for '{normalized}'",
+        )
+
+    updates = payload.model_dump(exclude_unset=True)
+    if not updates:
+        return map_record(record)
+
+    # Apply only provided fields
+    for key, value in updates.items():
+        if hasattr(record, key):
+            setattr(record, key, value)
+
+    try:
         await session.commit()
         await session.refresh(record)
         return map_record(record)
@@ -174,9 +285,20 @@ async def list_brands(
     return [
         BrandSummary(
             domain=record.domain,
+            website_url=record.website_url,
             name=record.name,
             icon=record.icon,
             description=record.description,
+            contact_email=record.contact_email,
+            contact_phone=record.contact_phone,
+            contact_address=record.contact_address,
+            instagram_url=record.instagram_url,
+            youtube_url=record.youtube_url,
+            facebook_url=record.facebook_url,
+            industry=record.industry,
+            language=record.language,
+            region=record.region,
+            tone_of_voice=record.tone_of_voice,
             created_at=record.created_at,
             updated_at=record.updated_at,
         )
@@ -219,4 +341,102 @@ def _extract_conversation_id(payload: BrandFetchRequest, request: Request | None
         if header_val:
             return header_val
     return payload.conversation_id
+
+
+def _first_or_none(iterable):
+    return next((item for item in iterable if item), None)
+
+
+def _extract_brand_fields(data: dict[str, Any]) -> dict[str, Any]:
+    links = data.get("links") or []
+
+    def link_for(name: str) -> str | None:
+        name_lower = name.lower()
+        for link in links:
+            if (link.get("name") or "").lower() == name_lower:
+                return link.get("url")
+        return None
+
+    company = data.get("company") or {}
+    industries = company.get("industries") or []
+    location = company.get("location") or {}
+
+    address_parts = [
+        location.get("city"),
+        location.get("state"),
+        location.get("country"),
+    ]
+
+    contact_email = _first_or_none(company.get("emails") or data.get("emails") or [])
+    contact_phone = _first_or_none(company.get("phoneNumbers") or data.get("phoneNumbers") or [])
+
+    return {
+        "name": data.get("name"),
+        "description": data.get("description"),
+        "icon": data.get("icon"),
+        "website_url": f"https://{data['domain']}" if data.get("domain") else None,
+        "contact_email": contact_email,
+        "contact_phone": contact_phone,
+        "contact_address": ", ".join([part for part in address_parts if part]).strip(", ") or None,
+        "instagram_url": link_for("instagram"),
+        "youtube_url": link_for("youtube"),
+        "facebook_url": link_for("facebook"),
+        "industry": industries[0].get("name") if industries else None,
+        "language": company.get("language") or data.get("language"),
+        "region": location.get("region") or location.get("country") or location.get("countryCode"),
+        "tone_of_voice": company.get("toneOfVoice") or data.get("toneOfVoice"),
+    }
+
+
+async def _infer_tone_of_voice(llm_service: LLMService | None, mapped: dict[str, Any]) -> str | None:
+    # If no LLM configured, skip gracefully
+    if llm_service is None:
+        return None
+
+    parts = []
+    for key in ["name", "description", "industry", "language", "region"]:
+        val = mapped.get(key)
+        if val:
+            parts.append(f"{key.title()}: {val}")
+    for key in ["instagram_url", "youtube_url", "facebook_url", "website_url"]:
+        val = mapped.get(key)
+        if val:
+            parts.append(f"{key.replace('_url', '').title()}: {val}")
+
+    if not parts:
+        return None
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a branding assistant. Given brand metadata (name, description, "
+                "industry, region, language, and links), infer a concise tone-of-voice "
+                "description for the brand.\n\n"
+                "Format your answer as three comma-separated adjectives.\n\n"
+                "Here are example tones of voice for reference:\n"
+                "- Teems.ai — Friendly, confident, and innovative\n"
+                "- Apple — Minimal, premium, and precise\n"
+                "- Nike — Bold, motivational, and energetic\n"
+                "- IKEA — Friendly, practical, and witty\n"
+                "- Airbnb — Warm, welcoming, and story-driven\n"
+                "- Google — Helpful, clear, and approachable\n"
+                "- Spotify — Playful, modern, and expressive\n"
+                "- Amazon — Efficient, direct, and customer-first\n"
+                "- Tesla — Visionary, bold, and disruptive\n"
+                "- Emirates — Polished, luxurious, and reassuring\n"
+                "- Careem — Local, friendly, and convenient\n"
+                "- Netflix — Playful, confident, and conversational\n\n"
+                "Only output the three-adjective tone-of-voice phrase, under 12 words."
+            ),
+        },
+        {"role": "user", "content": "\n".join(parts)},
+    ]
+
+    try:
+        text = await llm_service.generate(messages, temperature=0.4)
+    except Exception:
+        return None
+
+    return (text or "").strip()[:200] or None
 

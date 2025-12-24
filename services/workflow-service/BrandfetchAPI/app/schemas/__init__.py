@@ -3,6 +3,7 @@ from .brand import (
     BrandFetchResponse,
     BrandRecordResponse,
     BrandSummary,
+    BrandUpdateRequest,
 )
 
 __all__ = [
@@ -10,5 +11,6 @@ __all__ = [
     "BrandFetchResponse",
     "BrandRecordResponse",
     "BrandSummary",
+    "BrandUpdateRequest",
 ]
 

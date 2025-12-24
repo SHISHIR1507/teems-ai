@@ -29,9 +29,20 @@ class BrandFetchRequest(BaseModel):
 
 class BrandSummary(BaseModel):
     domain: str
+    website_url: str | None = None
     name: str | None = None
     icon: str | None = None
     description: str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
+    contact_address: str | None = None
+    instagram_url: str | None = None
+    youtube_url: str | None = None
+    facebook_url: str | None = None
+    industry: str | None = None
+    language: str | None = None
+    region: str | None = None
+    tone_of_voice: str | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -42,4 +53,20 @@ class BrandRecordResponse(BrandSummary):
 
 class BrandFetchResponse(BrandRecordResponse):
     source: str = Field(description="Where the data came from", default="cache")
+
+
+class BrandUpdateRequest(BaseModel):
+    name: str | None = None
+    website_url: str | None = None
+    description: str | None = None
+    contact_email: str | None = None
+    contact_phone: str | None = None
+    contact_address: str | None = None
+    instagram_url: str | None = None
+    youtube_url: str | None = None
+    facebook_url: str | None = None
+    industry: str | None = None
+    language: str | None = None
+    region: str | None = None
+    tone_of_voice: str | None = None
 
