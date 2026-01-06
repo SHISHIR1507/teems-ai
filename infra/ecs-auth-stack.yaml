@@ -347,11 +347,8 @@ Resources:
 
   Service:
     Type: AWS::ECS::Service
-    DependsOn: !If
-      - HasSSLCertificate
-      - - Listener
-        - HTTPSListener
-      - - Listener
+    DependsOn:
+      - Listener
     Properties:
       ServiceName: !Sub "${AppName}-service"
       Cluster: !Ref Cluster
