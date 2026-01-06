@@ -236,9 +236,11 @@ Resources:
 
   Service:
     Type: AWS::ECS::Service
-    DependsOn:
-      - Listener
-      - !If [HasSSLCertificate, HTTPSListener, !Ref "AWS::NoValue"]
+    DependsOn: !If
+      - HasSSLCertificate
+      - - Listener
+        - HTTPSListener
+      - - Listener
     Properties:
       ServiceName: !Sub "${AppName}-service"
       Cluster: !Ref Cluster
