@@ -45,6 +45,13 @@ Parameters:
     Type: String
     Default: ""
     Description: Comma-separated list of allowed CORS origins (optional, defaults to localhost + env var)
+  SSLCertificateArn:
+    Type: String
+    Default: ""
+    Description: ACM certificate ARN for this service's HTTPS listener
+
+Conditions:
+  HasSSLCertificate: !Not [!Equals [!Ref SSLCertificateArn, ""]]
 
 Resources:
   VPC:
@@ -151,6 +158,10 @@ Resources:
           FromPort: 80
           ToPort: 80
           CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
       SecurityGroupEgress:
         - IpProtocol: -1
           FromPort: 0
@@ -191,6 +202,29 @@ Resources:
       LoadBalancerArn: !Ref LoadBalancer
       Port: 80
       Protocol: HTTP
+      DefaultActions:
+        - !If
+          - HasSSLCertificate
+          - Type: redirect
+            RedirectConfig:
+              Protocol: HTTPS
+              Port: "443"
+              Host: "#{host}"
+              Path: "/#{path}"
+              Query: "#{query}"
+              StatusCode: HTTP_301
+          - Type: forward
+            TargetGroupArn: !Ref TargetGroup
+
+  HTTPSListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: HasSSLCertificate
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref SSLCertificateArn
       DefaultActions:
         - Type: forward
           TargetGroupArn: !Ref TargetGroup
@@ -278,6 +312,7 @@ Resources:
     Type: AWS::ECS::Service
     DependsOn:
       - Listener
+      - !If [HasSSLCertificate, HTTPSListener, !Ref "AWS::NoValue"]
     Properties:
       ServiceName: !Sub "${AppName}-service"
       Cluster: !Ref Cluster

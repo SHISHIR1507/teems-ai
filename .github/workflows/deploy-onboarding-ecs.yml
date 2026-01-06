@@ -201,6 +201,18 @@ jobs:
             echo "Stack does not exist yet, will create new stack"
           fi
 
+      - name: Check SSL Certificate configuration
+        env:
+          SSL_CERTIFICATE_ARN: ${{ secrets.SSL_CERTIFICATE_ARN || secrets.ONBOARDING_SSL_CERTIFICATE_ARN }}
+        run: |
+          if [[ -n "${SSL_CERTIFICATE_ARN}" ]]; then
+            echo "✓ SSL Certificate ARN is configured - HTTPS will be enabled"
+            echo "Certificate ARN: ${SSL_CERTIFICATE_ARN:0:50}..."
+          else
+            echo "⚠ SSL Certificate ARN is not set - HTTPS will be disabled (HTTP only)"
+            echo "To enable HTTPS, add SSL_CERTIFICATE_ARN or ONBOARDING_SSL_CERTIFICATE_ARN to GitHub secrets"
+          fi
+
       - name: Deploy CloudFormation stack (network, cluster, ALB, ECS service)
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL || secrets.ONBOARDING_DATABASE_URL }}
@@ -213,6 +225,7 @@ jobs:
           AUTH0_ALGORITHM: ${{ secrets.AUTH0_ALGORITHM || secrets.ONBOARDING_AUTH0_ALGORITHM || 'RS256' }}
           BRANDFETCH_API_URL: ${{ secrets.BRANDFETCH_API_URL || 'http://teems-brandfetch-alb-default.us-east-1.elb.amazonaws.com' }}
           CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS || secrets.ONBOARDING_CORS_ALLOWED_ORIGINS || '' }}
+          SSL_CERTIFICATE_ARN: ${{ secrets.SSL_CERTIFICATE_ARN || secrets.ONBOARDING_SSL_CERTIFICATE_ARN }}
         run: |
           set -e
           aws cloudformation deploy \
@@ -235,6 +248,7 @@ jobs:
               Auth0Algorithm="${AUTH0_ALGORITHM:-RS256}" \
               BrandfetchApiUrl="${BRANDFETCH_API_URL:-}" \
               CORSAllowedOrigins="${CORS_ALLOWED_ORIGINS:-}" \
+              SSLCertificateArn="${SSL_CERTIFICATE_ARN:-}" \
             --no-fail-on-empty-changeset
 
       - name: Show stack events on failure
@@ -268,8 +282,8 @@ jobs:
             --stack-name "${CLOUD_FORMATION_STACK}" \
             --query "Stacks[0].Outputs[?OutputKey=='LoadBalancerDNS'].OutputValue" \
             --output text)
-          echo "SERVICE_URL=http://${DNS_NAME}" >> "$GITHUB_OUTPUT"
-          echo "Service is available at: http://${DNS_NAME}"
+          echo "SERVICE_URL=https://${DNS_NAME}" >> "$GITHUB_OUTPUT"
+          echo "Service is available at: https://${DNS_NAME}"
 
       - name: Print service URL
         run: |
