@@ -248,8 +248,11 @@ If the user asks unrelated questions or tries to deviate from the onboarding flo
         
         if not is_valid:
             # Invalid URL - generate LLM response to guide user
+            # Get fresh history that includes the user's message
+            updated_history = await self.get_conversation_history(state.conversation_id)
+            
             messages = [{"role": "system", "content": system_prompt}]
-            messages.extend(history[-10:])
+            messages.extend(updated_history[-10:])  # Use updated history
             messages.append({"role": "user", "content": user_message})
             
             llm_response = await self.llm_service.generate(messages)
@@ -336,6 +339,9 @@ Generate a natural, conversational response confirming that you've fetched the b
                 exc_info=True
             )
             
+            # Get fresh history that includes the user's message
+            updated_history = await self.get_conversation_history(state.conversation_id)
+            
             # Determine error context for better LLM response
             error_context = ""
             if e.status_code == 404:
@@ -362,7 +368,7 @@ Use this tone as a guide, but make it conversational and helpful:
 Generate a natural, conversational response that acknowledges the issue and gently asks the user to check their URL or try a different one. Be helpful and not frustrating. Keep it brief."""
 
             error_messages = [{"role": "system", "content": error_prompt}]
-            error_messages.extend(history[-5:])
+            error_messages.extend(updated_history[-5:])  # Use updated history
             error_messages.append({"role": "user", "content": user_message})
             
             error_response = await self.llm_service.generate(error_messages)
@@ -374,6 +380,9 @@ Generate a natural, conversational response that acknowledges the issue and gent
                 f"Error fetching brand information for URL {extracted_url}: {type(e).__name__}: {e}",
                 exc_info=True
             )
+            
+            # Get fresh history that includes the user's message
+            updated_history = await self.get_conversation_history(state.conversation_id)
             
             # Use LLM to generate a conversational error response
             error_prompt = f"""{self.BASE_SYSTEM_PROMPT}
@@ -388,7 +397,7 @@ Use this tone as a guide, but make it conversational and helpful:
 Generate a natural, conversational response that acknowledges the issue and gently asks the user to check their URL or try again. Be helpful and not frustrating. Keep it brief."""
 
             error_messages = [{"role": "system", "content": error_prompt}]
-            error_messages.extend(history[-5:])
+            error_messages.extend(updated_history[-5:])  # Use updated history
             error_messages.append({"role": "user", "content": user_message})
             
             error_response = await self.llm_service.generate(error_messages)
