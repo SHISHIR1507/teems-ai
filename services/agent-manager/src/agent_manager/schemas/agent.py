@@ -22,14 +22,43 @@ class ToolStackItem(BaseModel):
 
 class WorksWellWithItem(BaseModel):
     """
-    Represents one 'works well with' relationship for an agent, matching:
-    { "id": "photo-01", "name": "Mila", "role": "Fashion Photographer", "role_type": "creative" }
+    Represents one 'works well with' relationship for an agent:
+    { 
+      "id": "photo-01", 
+      "name": "Mila", 
+      "role": "Fashion Photographer", 
+      "role_type": "creative",
+      "image": "https://s3.../teem_mate_fashion_photographer.png"
+    }
+    
+    The frontend can use the `id` to fetch full agent details when clicked.
     """
 
-    id: str
+    id: str = Field(..., description="Agent ID (UUID as string) - use this to fetch full agent details")
     name: str
     role: str
     role_type: str
+    image: Optional[str] = Field(
+        default=None,
+        description="URL or path to the agent's image (e.g., teem_mate_image from the agent)"
+    )
+
+
+class WorkSample(BaseModel):
+    """
+    Represents a work sample/portfolio item for an agent:
+    {
+      "title": "Glow Boost Campaign",
+      "client": "Glow Skincare",
+      "description": "Launched a 12-email skincare education series...",
+      "image": "https://s3.../work_sample_1.png"
+    }
+    """
+
+    title: str
+    client: str
+    description: str
+    image: str = Field(..., description="URL to the work sample image")
 
 
 # Base schema with common fields
@@ -73,8 +102,15 @@ class AgentBase(BaseModel):
         default_factory=list,
         description=(
             "Other agents this one works well with; "
-            "list of {id, name, role, role_type} objects"
+            "list of {id, name, role, role_type} objects. "
+            "Frontend can use the `id` field to fetch full agent details when clicked."
         ),
+    )
+
+    # Work samples/portfolio items
+    work_samples: List[WorkSample] = Field(
+        default_factory=list,
+        description="Portfolio/showcase work samples for this agent",
     )
 
 
@@ -110,6 +146,7 @@ class AgentUpdate(BaseModel):
     skills: Optional[List[str]] = None
     tools_stack: Optional[List[ToolStackItem]] = None
     works_well_with: Optional[List[WorksWellWithItem]] = None
+    work_samples: Optional[List[WorkSample]] = None
 
     version: Optional[int] = None
 
@@ -129,6 +166,7 @@ class AgentListItem(BaseModel):
     skills: List[str]
     tools_stack: List[ToolStackItem]
     works_well_with: List[WorksWellWithItem]
+    work_samples: List[WorkSample]
     created_at: datetime
 
     # Whether this agent is already assigned to the currently authenticated user.

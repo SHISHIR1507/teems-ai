@@ -95,7 +95,19 @@ async def create_agent(
     payload: AgentCreate,
     db: AsyncSession = Depends(get_db_session),
 ):
-    agent = Agent(**payload.model_dump())
+    # Convert Pydantic models to dicts for JSON columns
+    data = payload.model_dump()
+    # work_samples needs to be converted from Pydantic models to dicts
+    if "work_samples" in data and data["work_samples"]:
+        data["work_samples"] = [item.model_dump() if hasattr(item, "model_dump") else item for item in data["work_samples"]]
+    # tools_stack also needs conversion
+    if "tools_stack" in data and data["tools_stack"]:
+        data["tools_stack"] = [item.model_dump() if hasattr(item, "model_dump") else item for item in data["tools_stack"]]
+    # works_well_with also needs conversion
+    if "works_well_with" in data and data["works_well_with"]:
+        data["works_well_with"] = [item.model_dump() if hasattr(item, "model_dump") else item for item in data["works_well_with"]]
+    
+    agent = Agent(**data)
     db.add(agent)
     await db.commit()
     await db.refresh(agent)
@@ -147,6 +159,14 @@ async def update_agent(
         raise HTTPException(status_code=404, detail="Agent not found")
 
     updates = payload.model_dump(exclude_unset=True, exclude_none=True)
+    # Convert Pydantic models to dicts for JSON columns
+    if "work_samples" in updates and updates["work_samples"]:
+        updates["work_samples"] = [item.model_dump() if hasattr(item, "model_dump") else item for item in updates["work_samples"]]
+    if "tools_stack" in updates and updates["tools_stack"]:
+        updates["tools_stack"] = [item.model_dump() if hasattr(item, "model_dump") else item for item in updates["tools_stack"]]
+    if "works_well_with" in updates and updates["works_well_with"]:
+        updates["works_well_with"] = [item.model_dump() if hasattr(item, "model_dump") else item for item in updates["works_well_with"]]
+    
     for field, value in updates.items():
         setattr(agent, field, value)
 

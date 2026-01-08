@@ -27,7 +27,9 @@ class Agent(Base):
     - skills list
     - tools stack as a JSON array of objects: [{ "label": ..., "icon": ... }, ...]
     - "works well with" relationships as a JSON array of objects:
-      [{ "id": ..., "name": ..., "role": ..., "role_type": ... }, ...]
+      [{ "id": ..., "name": ..., "role": ..., "role_type": ..., "image": ... }, ...]
+      Frontend can use the `id` field to fetch full agent details when clicked
+    - work_samples as a JSON array of objects: [{ "title": ..., "client": ..., "description": ..., "image": ... }, ...]
     - display image URL used by the frontend cards/detail pages
     """
 
@@ -53,12 +55,31 @@ class Agent(Base):
     # [{ "label": "Klaviyo", "icon": "slack_icon" }, ...]
     tools_stack = Column(JSON, nullable=True, default=list)
 
-    # "Works well with" relationships (stored denormalised for now)
+    # "Works well with" relationships (stored denormalised)
     # [
-    #   { "id": "photo-01", "name": "Mila", "role": "Fashion Photographer", "role_type": "creative" },
+    #   { 
+    #     "id": "photo-01", 
+    #     "name": "Mila", 
+    #     "role": "Fashion Photographer", 
+    #     "role_type": "creative",
+    #     "image": "https://s3.../teem_mate_fashion_photographer.png"
+    #   },
     #   ...
     # ]
+    # Frontend can use the `id` field to fetch full agent details when clicked
     works_well_with = Column(JSON, nullable=True, default=list)
+
+    # Work samples - portfolio/showcase items
+    # [
+    #   {
+    #     "title": "Glow Boost Campaign",
+    #     "client": "Glow Skincare",
+    #     "description": "Launched a 12-email skincare education series...",
+    #     "image": "https://s3.../work_sample_1.png"
+    #   },
+    #   ...
+    # ]
+    work_samples = Column(JSON, nullable=True, default=list)
 
     # Versioning
     version = Column(Integer, default=1, nullable=False)
