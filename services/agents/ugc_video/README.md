@@ -1,196 +1,132 @@
-# UGC Video Creator Service
+# UGC Video Orchestrator Agent
 
-FastAPI microservice for generating User-Generated Content (UGC) videos using CrewAI multi-agent workflows. Supports three types of UGC content:
-
-1. **Physical Product & Person**: Combines person image with product image
-2. **Digital Product & Person**: Combines person image with app/website screenshots (shown in device frames)
-3. **Service & Person**: Person talking about a service with optional logo placement
+An agentic workflow system for generating User-Generated Content (UGC) videos with AI. Uses CrewAI agents to orchestrate script generation, audio synthesis, image generation, and video creation with PostgreSQL persistence and AWS S3 storage.
 
 ## Features
 
-- **Auto-detection**: Automatically detects UGC type based on uploaded files
-- **Multi-agent Workflows**: Uses CrewAI for orchestrated agent execution
-- **Image Generation**: Generates 4 diverse UGC image variants using Banana UGC tool
-- **Video Generation**: Creates 8-second videos from images using Veo-3.1
-- **S3 Storage**: All generated artifacts stored in S3 with presigned URLs
-- **Conversation Management**: Tracks conversation history and generated artifacts
-- **Auth0 Integration**: Secure authentication and tenant isolation
+- **Brand Sync**: Lock brand context (industry, audience, vibe) for consistent content generation
+- **Image Generation**: Generate UGC images from person + product photos using Banana API
+- **Script Generation**: AI-powered UGC script and dialogue creation
+- **Audio Synthesis**: Text-to-speech with multiple avatar voices
+- **Video Generation**: Image-to-video using Veo3.1 API
+- **Database Persistence**: PostgreSQL with async SQLAlchemy
+- **S3 Storage**: All assets stored in AWS S3 (no local temp files)
+- **LangSmith Tracing**: Full observability of agent workflows
 
-## Architecture
+## Prerequisites
 
-The service uses a 2-agent sequential workflow pattern:
+- Python 3.9+
+- PostgreSQL database
+- AWS S3 bucket
+- API keys for:
+  - OpenAI (for agents)
+  - Banana API (for image generation)
+  - AIML API (for audio/video generation)
+  - LangSmith (for tracing)
 
-### Image Generation Workflow
-1. **Prompt Variator Agent**: Generates 4 diverse prompts from base intent
-2. **Image Generator Agent**: Generates 4 images (one per prompt) using Banana UGC tool
+## Setup
 
-### Video Generation Workflow
-1. **Script Generator Agent**: Creates 8-second video script optimized for Veo-3
-2. **Video Generator Agent**: Generates video from image + script using Veo-3.1
-
-## Quickstart
-
+1. **Install dependencies**:
 ```bash
-cd services/agents/ugc_video
-python -m venv .venv
-source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env  # fill values
-export PYTHONPATH=src
-uvicorn ugc_video.app:create_app --factory --reload --port 8080
 ```
 
-## Required Environment Variables
+2. **Configure environment variables** - Create a `.env` file:
+```env
+# Database
+DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/ugc_db
 
-- `DATABASE_URL` – PostgreSQL connection string (async SQLAlchemy format)
-- `AUTH0_DOMAIN` – Auth0 domain (e.g., `your-tenant.us.auth0.com`)
-- `AUTH0_AUDIENCE` – Auth0 API audience
-- `AUTH0_ALGORITHM` – JWT algorithm (default: `RS256`)
-- `AIML_API_KEY` – AIML API key for accessing OpenAI/Gemini models
-- `AIML_BASE_URL` – Base URL for AIML API (default: `https://api.aimlapi.com/v1`)
-- `AWS_ACCESS_KEY_ID` – AWS access key for S3
-- `AWS_SECRET_ACCESS_KEY` – AWS secret key for S3
-- `AWS_REGION` – AWS region (default: `us-east-1`)
-- `S3_BUCKET_NAME` – S3 bucket name for storing artifacts
-- `AGENT_MANAGER_BASE_URL` – Base URL for agent-manager service (optional)
-- `LANGCHAIN_TRACING_V2` – Enable LangSmith tracing (default: `false`)
-- `LANGCHAIN_PROJECT` – LangSmith project name (default: `ugc-video-creator`)
-- `LANGCHAIN_API_KEY` – LangSmith API key (optional)
+# AWS S3
+AWS_ACCESS_KEY_ID=your_access_key
+AWS_SECRET_ACCESS_KEY=your_secret_key
+AWS_REGION=us-east-1
+S3_BUCKET_NAME=your-bucket-name
+
+# AI/ML APIs
+OPENAI_API_KEY=your_openai_key
+BANANA_API_KEY=your_banana_key
+AIML_API_KEY=your_aiml_key
+
+# LangSmith
+LANGCHAIN_API_KEY=your_langsmith_key
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_PROJECT=ugc-orchestrator
+```
+
+3. **Initialize database** - Run the migration:
+```bash
+python add_columns_migration.py
+```
+
+4. **Start the server**:
+```bash
+python server_with_db.py
+```
+
+Server runs on `http://localhost:8000`
 
 ## API Endpoints
 
-### POST `/api/v1/chat`
-Main chat endpoint for UGC generation.
+### Health Check
+```
+GET /health
+```
 
-**Request (multipart/form-data):**
-- `message` (string, required): User's message/intent
-- `person_image` (file, optional): Person image file
-- `product_image` (file, optional): Product image (for physical products)
-- `screenshot` (file, optional): Screenshot (for digital products)
-- `logo` (file, optional): Logo image (for services)
-- `conversation_id` (string, optional): Existing conversation ID
-
-**Response:**
-```json
+### Brand Sync
+```
+POST /orchestrator/brand-sync
 {
-  "conversation_id": "uuid",
-  "assistant_message": "string",
-  "ugc_type": "physical_product|digital_product|service",
-  "generated_images": ["s3_url_1", "s3_url_2", ...],
-  "status": "completed",
-  "timestamp": "2024-01-01T00:00:00Z"
+  "industry": "skincare",
+  "audience": "Gen Z women",
+  "vibe": "authentic and relatable"
 }
 ```
 
-### POST `/api/v1/chat/{conversation_id}/generate-video`
-Generate video from a selected image.
+### Generate UGC Images
+```
+POST /chat/ugc/upload
+- message: "Generate UGC images"
+- person_image: file
+- product_image: file
+- conversation_id: optional
+```
 
-**Request (JSON):**
-```json
+### Generate Script + Audio + Video
+```
+POST /chat/ugc/script
 {
-  "image_id": "uuid",
-  "product_name": "string",
+  "ugc_image_path": "s3_url_or_path",
+  "product_name": "Glow Serum",
+  "avatar_id": 1,
   "tone": "energetic and authentic",
   "platform": "Instagram"
 }
 ```
 
-**Response:**
-```json
-{
-  "conversation_id": "uuid",
-  "script": "video script text",
-  "video_url": "s3_presigned_url",
-  "timestamp": "2024-01-01T00:00:00Z"
-}
+### Get Conversation History
+```
+GET /conversation/{conversation_id}
 ```
 
-### GET `/api/v1/conversations/{conversation_id}`
-Get conversation history with artifacts.
+## Architecture
 
-### GET `/api/v1/conversations`
-List conversations for authenticated user.
-
-### GET `/health`
-Health check endpoint.
+- **FastAPI**: REST API server
+- **CrewAI**: Multi-agent orchestration
+- **SQLAlchemy**: Async database ORM
+- **PostgreSQL**: Conversation and asset persistence
+- **AWS S3**: Asset storage (images, audio, video)
+- **LangSmith**: Agent tracing and observability
 
 ## Database Schema
 
-### Conversations
-- `id` (UUID)
-- `tenant_id` (String, indexed)
-- `user_id` (String, indexed)
-- `ugc_type` (Enum: physical_product, digital_product, service)
-- `status` (Enum: active, completed, archived)
-- `metadata` (JSON)
-- `created_at`, `updated_at` (timestamps)
-
-### Messages
-- `id` (UUID)
-- `conversation_id` (FK to Conversation)
-- `role` (Enum: user, assistant, system)
-- `content` (Text)
-- `metadata` (JSON)
-- `created_at` (timestamp)
-
-### Artifacts
-- `id` (UUID)
-- `conversation_id` (FK to Conversation)
-- `artifact_type` (Enum: image, video, script)
-- `s3_key` (String)
-- `s3_url` (String, presigned URL)
-- `metadata` (JSON)
-- `created_at` (timestamp)
-
-## UGC Type Detection
-
-The service automatically detects UGC type based on uploaded files:
-
-- **Physical Product**: Both `person_image` and `product_image` uploaded
-- **Digital Product**: `person_image` + `screenshot` uploaded, or message contains digital keywords
-- **Service**: Only `person_image` with service keywords, or `logo` provided
-
-## Integration with Agent Manager
-
-The service can be integrated with the agent-manager service:
-
-1. Register the UGC Video Creator agent in agent-manager database
-2. When agent is run via `POST /api/agents/{id}/run`, agent-manager calls UGC service endpoints
-3. UGC service processes the request and returns results
-4. Agent-manager updates AgentRun status
+- `conversations`: Brand context and metadata
+- `messages`: Chat history
+- `assets`: Generated images, audio, video URLs
 
 ## Development
 
-### Running Tests
-```bash
-pytest tests/
-```
+The system uses a 2-agent workflow:
+1. **Script Agent**: Generates dialogue and video scripts
+2. **Audio/Video Agent**: Creates audio and video assets
 
-### Local Development
-```bash
-# Start PostgreSQL and ensure database exists
-# Set environment variables in .env
-uvicorn ugc_video.app:create_app --factory --reload --port 8080
-```
-
-### Docker Build
-```bash
-docker build -f services/agents/ugc_video/Dockerfile -t ugc-video-creator .
-```
-
-## Deployment
-
-The service follows the same deployment pattern as other services:
-
-1. Build Docker image
-2. Push to ECR
-3. Deploy using ECS Fargate stack (see `infra/ecs-ugc-video-stack.yaml`)
-4. Configure environment variables in ECS task definition
-
-## Notes
-
-- All generated images and videos are stored in S3
-- Presigned URLs are generated for temporary access (1 hour expiration)
-- Conversation history is persisted in PostgreSQL
-- LangSmith tracing is optional but recommended for monitoring
-
+All assets are uploaded to S3 with public-read access for AI/ML API consumption.
