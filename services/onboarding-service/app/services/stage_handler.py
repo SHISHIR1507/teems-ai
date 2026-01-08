@@ -279,10 +279,10 @@ If the user asks unrelated questions or tries to deviate from the onboarding flo
         if domain.startswith("www."):
             domain = domain[4:]
 
-        # Call Brandfetch API
+        # Call Brandfetch API - use url_input (normalized) not extracted_url (raw)
         try:
             brand_data = await self.brandfetch_client.fetch_brand(
-                extracted_url,
+                url_input,
                 auth_token=auth_token,
             )
             
