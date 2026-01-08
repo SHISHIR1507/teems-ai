@@ -236,11 +236,7 @@ If the user asks unrelated questions or tries to deviate from the onboarding flo
             # Generate LLM response (will generate initial message if needed, or respond conversationally)
             llm_response = await self.llm_service.generate(messages)
             
-            # Save the initial message if this is the first assistant message in the conversation
-            if is_first_message:
-                await self.save_message(state.conversation_id, "assistant", llm_response, "brand_discovery")
-            
-            # No URL found - use LLM response but guide user
+            # Save response (removed duplicate save logic)
             response = llm_response
             if "example" not in response.lower() and "teems.ai" not in response.lower():
                 response += " For example, you could provide a URL like teems.ai"
@@ -258,11 +254,7 @@ If the user asks unrelated questions or tries to deviate from the onboarding flo
             
             llm_response = await self.llm_service.generate(messages)
             
-            # Save the initial message if this is the first assistant message in the conversation
-            if is_first_message:
-                await self.save_message(state.conversation_id, "assistant", llm_response, "brand_discovery")
-            
-            # Invalid URL - use LLM response but guide user
+            # Save response (removed duplicate save logic)
             response = llm_response
             if "example" not in response.lower() and "teems.ai" not in response.lower():
                 response += " For example, you could provide a URL like teems.ai"
@@ -288,6 +280,7 @@ If the user asks unrelated questions or tries to deviate from the onboarding flo
             
             # Update state with domain but DON'T change stage yet (wait for confirmation)
             state.brand_domain = domain
+            await self.session.flush()  # CRITICAL: Flush state immediately so it's persisted
             
             # Publish event for frontend to display brand data
             channel = f"{self.settings.onboarding_channel_prefix}:{self.user.tenant_id}"
@@ -303,6 +296,9 @@ If the user asks unrelated questions or tries to deviate from the onboarding flo
                 },
             )
 
+            # Get fresh history that includes the user's message
+            updated_history = await self.get_conversation_history(state.conversation_id)
+            
             # Use LLM to generate a conversational response about the fetched brand
             # If first message, include greeting; otherwise just acknowledge
             if is_first_message:
@@ -327,7 +323,7 @@ You've successfully fetched the brand information for {domain}. Use this tone as
 Generate a natural, conversational response confirming that you've fetched the brand information. Keep it brief, friendly, and match the user's energy from the conversation."""
 
             success_messages = [{"role": "system", "content": success_prompt}]
-            success_messages.extend(history[-5:])
+            success_messages.extend(updated_history[-5:])  # Use updated history
             success_messages.append({"role": "user", "content": user_message})  # Use actual user message
             
             response = await self.llm_service.generate(success_messages)
