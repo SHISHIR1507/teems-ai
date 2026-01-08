@@ -336,21 +336,34 @@ Generate a natural, conversational response confirming that you've fetched the b
         except HTTPException as e:
             # Handle HTTP exceptions gracefully - log and use LLM for conversational response
             logger.error(
-                f"Brandfetch API error for URL {extracted_url}: {e.status_code} - {e.detail}",
+                f"Brandfetch API error for URL {url_input}: {e.status_code} - {e.detail}",
                 exc_info=True
             )
+            
+            # Determine error context for better LLM response
+            error_context = ""
+            if e.status_code == 404:
+                error_context = f"The brand information for '{domain}' is not available in Brandfetch's database. This domain might not be in their system yet."
+            elif e.status_code == 422:
+                error_context = f"Brandfetch rejected the domain '{domain}' as invalid."
+            elif e.status_code == 400:
+                error_context = f"The URL was invalid: {e.detail}"
+            elif e.status_code == 429:
+                error_context = "Brandfetch rate limit exceeded. Please try again in a moment."
+            else:
+                error_context = f"An error occurred while fetching brand information: {e.detail}"
             
             # Use LLM to generate a conversational error response
             error_prompt = f"""{self.BASE_SYSTEM_PROMPT}
 
 Current stage: Brand Discovery
 
-The user provided a URL ({extracted_url}), but there was an issue fetching the brand information. The error was: {e.detail if hasattr(e, 'detail') else 'Unable to fetch brand information'}.
+The user provided a URL ({extracted_url}), but there was an issue fetching the brand information. {error_context}
 
 Use this tone as a guide, but make it conversational and helpful:
 "Please check your url again."
 
-Generate a natural, conversational response that acknowledges the issue and gently asks the user to check their URL or try again. Be helpful and not frustrating. Keep it brief."""
+Generate a natural, conversational response that acknowledges the issue and gently asks the user to check their URL or try a different one. Be helpful and not frustrating. Keep it brief."""
 
             error_messages = [{"role": "system", "content": error_prompt}]
             error_messages.extend(history[-5:])

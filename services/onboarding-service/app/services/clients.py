@@ -78,16 +78,25 @@ class BrandfetchClient:
                     "force_refresh": False,
                 },
                 headers=headers,
+                follow_redirects=True,  # Explicitly enable redirect following
             )
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as e:
-            if e.response.status_code == 400:
-                error_detail = e.response.json().get("detail", "Invalid URL")
-                raise HTTPException(status_code=400, detail=error_detail)
+            # Extract error detail from response for ALL status codes
+            error_detail = "Invalid URL"
+            try:
+                if e.response.headers.get("content-type", "").startswith("application/json"):
+                    error_detail = e.response.json().get("detail", str(e))
+                else:
+                    error_detail = e.response.text or str(e)
+            except Exception:
+                error_detail = str(e)
+            
+            # Preserve the original status code and detail
             raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail=f"Brandfetch API unavailable: {e}",
+                status_code=e.response.status_code,
+                detail=error_detail,
             )
         except httpx.RequestError as exc:
             raise HTTPException(
