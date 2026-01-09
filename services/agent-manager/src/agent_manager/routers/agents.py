@@ -11,6 +11,7 @@ from ..models.agent import Agent, AgentAssignment, AgentRun
 from ..schemas.agent import (
     AgentAssignmentRequest,
     AgentAssignmentResponse,
+    AgentCategoriesResponse,
     AgentCreate,
     AgentUpdate,
     AgentListItem,
@@ -21,6 +22,21 @@ from ..schemas.agent import (
 )
 
 router = APIRouter(prefix="/api/agents", tags=["agents"])
+
+
+@router.get("/categories", response_model=AgentCategoriesResponse, summary="Get all agent categories")
+async def get_agent_categories(
+    db: AsyncSession = Depends(get_db_session),
+) -> AgentCategoriesResponse:
+    """
+    Return a list of distinct non-null agent categories.
+
+    This is useful for populating filters or dropdowns on the frontend.
+    """
+    query = select(func.distinct(Agent.category)).where(Agent.category.isnot(None))
+    result = await db.execute(query)
+    categories = [row[0] for row in result.all() if row[0] is not None]
+    return AgentCategoriesResponse(categories=categories)
 
 
 @router.get("/", response_model=AgentListResponse, summary="Get all agents")

@@ -213,6 +213,17 @@ class AgentListResponse(BaseModel):
     size: int
 
 
+class AgentCategoriesResponse(BaseModel):
+    """
+    Simple response model for the categories endpoint.
+
+    Returns the distinct non-null agent categories currently present
+    in the catalogue.
+    """
+
+    categories: List[str]
+
+
 class AgentAssignmentRequest(BaseModel):
     """
     Kept for backwards compatibility, but the assign endpoint now derives
