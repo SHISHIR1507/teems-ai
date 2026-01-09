@@ -2,22 +2,18 @@
 S3 utilities for uploading and managing files in AWS S3
 Uses boto3 for S3 operations
 """
-import os
 import boto3
 from botocore.exceptions import ClientError
 from typing import Optional
-from dotenv import load_dotenv
 import mimetypes
 from datetime import datetime
-
-load_dotenv()
-
-# AWS Configuration
-AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
-AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-AWS_REGION = os.getenv("AWS_REGION", "eu-north-1")
-S3_BUCKET_NAME = os.getenv("S3_BUCKET_NAME", "teems-agents")
-S3_FOLDER_PREFIX = os.getenv("S3_FOLDER_PREFIX", "UGC_Agent")  # Folder inside bucket
+from app.core.config import (
+    AWS_ACCESS_KEY_ID,
+    AWS_SECRET_ACCESS_KEY,
+    AWS_REGION,
+    S3_BUCKET_NAME,
+    S3_FOLDER_PREFIX
+)
 
 # Initialize S3 client
 s3_client = boto3.client(

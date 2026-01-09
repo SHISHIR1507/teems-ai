@@ -1,194 +1,33 @@
 """
-FastAPI Chat-based UGC Orchestrator with Database & S3 Integration
-PostgreSQL persistence + S3 storage for all assets
+UGC generation endpoints
 """
-
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from pydantic import BaseModel
-from typing import Optional, List, Dict
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from langsmith import traceable
+import langsmith
+from langsmith import Client
+from typing import Optional
 import os
 import uuid
+import re
 from datetime import datetime
-from dotenv import load_dotenv
-from sqlalchemy.ext.asyncio import AsyncSession
+from crewai import Task, Crew
 
-# LangSmith imports
-from langsmith import Client, traceable
-import langsmith
+from app.core.dependencies import get_db_session
+from app.core.config import LANGCHAIN_PROJECT
+from app.models.schemas import ChatResponse, ScriptRequest, ScriptVideoResponse
+from app.services import db_helpers
+from app.services.s3_utils import upload_bytes_to_s3, get_s3_key_for_upload
+from app.orchestrator.ugc_orchestrator import generate_ugc_with_orchestrator, chat_with_agent
+from app.agents.script_agent import create_script_agent
+from app.agents.audio_video_agent import create_audio_video_agent
+from app.tools.audio_maker import AVATAR_VOICE_MAP
 
-# Database and S3 imports
-from database import get_db_session, init_db
-import db_helpers
-from s3_utils import upload_bytes_to_s3, get_s3_key_for_upload
-
-# Import UGC orchestrator agent
-from ugc_orchestrator_agent import generate_ugc_with_orchestrator, handle_brand_sync
-
-# Load environment variables
-load_dotenv()
-
-# Initialize LangSmith
-os.environ["LANGCHAIN_TRACING_V2"] = "true"
-os.environ["LANGCHAIN_PROJECT"] = "ugc-orchestrator"
-
+router = APIRouter()
 langsmith_client = Client()
 
-app = FastAPI(title="UGC Orchestrator API with DB & S3", version="2.0.0")
 
-# Enable CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-
-# Pydantic Models
-class BrandSyncRequest(BaseModel):
-    industry: str
-    audience: str
-    vibe: str
-    conversation_id: Optional[str] = None
-
-
-class BrandSyncResponse(BaseModel):
-    conversation_id: str
-    kai_response: str
-    brand_locked: bool
-    timestamp: str
-    trace_url: Optional[str] = None
-
-
-class ChatResponse(BaseModel):
-    conversation_id: str
-    assistant_message: str
-    steps: List[Dict]
-    generated_images: Optional[List[str]] = None
-    timestamp: str
-    trace_url: Optional[str] = None
-
-
-class ScriptRequest(BaseModel):
-    ugc_image_path: str
-    product_name: str
-    avatar_id: int = 1
-    tone: Optional[str] = "energetic and authentic"
-    platform: Optional[str] = "Instagram"
-    conversation_id: Optional[str] = None
-
-
-# Startup event
-@app.on_event("startup")
-async def startup_event():
-    """Initialize database tables on startup"""
-    await init_db()
-    print("✅ Server started with database & S3 integration")
-
-
-@app.get("/")
-async def serve_frontend():
-    """Serve the chatbox HTML frontend"""
-    if os.path.exists("chatbox.html"):
-        return FileResponse("chatbox.html")
-    return {"message": "Frontend not found"}
-
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "online",
-        "service": "UGC Orchestrator API with DB & S3",
-        "version": "2.0.0",
-        "database": "PostgreSQL",
-        "storage": "AWS S3"
-    }
-
-
-@app.post("/orchestrator/brand-sync", response_model=BrandSyncResponse)
-@traceable(name="brand_sync_endpoint", tags=["fastapi", "brand-sync"])
-async def brand_sync_endpoint(
-    request: BrandSyncRequest,
-    session: AsyncSession = Depends(get_db_session)
-):
-    """Brand sync endpoint - stores brand context in database"""
-    conversation_id = request.conversation_id or str(uuid.uuid4())
-    
-    # Get or create conversation
-    conversation = await db_helpers.get_conversation(session, conversation_id)
-    if not conversation:
-        conversation = await db_helpers.create_conversation(
-            session,
-            conversation_id,
-            brand_industry=request.industry,
-            brand_audience=request.audience,
-            brand_vibe=request.vibe,
-            brand_locked=True
-        )
-    else:
-        conversation = await db_helpers.update_conversation_brand(
-            session,
-            conversation_id,
-            request.industry,
-            request.audience,
-            request.vibe
-        )
-    
-    # Add system message
-    await db_helpers.add_message(
-        session,
-        conversation_id,
-        "system",
-        f"Brand sync: {request.industry} | {request.audience} | {request.vibe}"
-    )
-    
-    run_tree = langsmith.get_current_run_tree()
-    
-    try:
-        print(f"\n{'='*60}")
-        print(f"Brand Sync: {conversation_id}")
-        print(f"Industry: {request.industry}, Audience: {request.audience}, Vibe: {request.vibe}")
-        print(f"{'='*60}\n")
-        
-        # Call orchestrator's brand sync handler
-        kai_response = handle_brand_sync(
-            industry=request.industry,
-            audience=request.audience,
-            vibe=request.vibe
-        )
-        kai_response_str = str(kai_response)
-        
-        # Add Kai's response to database
-        await db_helpers.add_message(session, conversation_id, "assistant", kai_response_str)
-        
-        # Get trace URL
-        trace_url = None
-        if run_tree and run_tree.id:
-            try:
-                tenant_id = langsmith_client._get_tenant_id()
-                project_name = os.getenv("LANGCHAIN_PROJECT", "ugc-orchestrator")
-                trace_url = f"https://smith.langchain.com/o/{tenant_id}/projects/p/{project_name}/r/{run_tree.id}"
-            except:
-                pass
-        
-        return BrandSyncResponse(
-            conversation_id=conversation_id,
-            kai_response=kai_response_str,
-            brand_locked=True,
-            timestamp=datetime.now().isoformat(),
-            trace_url=trace_url
-        )
-        
-    except Exception as e:
-        print(f"Error in brand sync: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
-
-
-@app.post("/chat/ugc/upload", response_model=ChatResponse)
+@router.post("/upload", response_model=ChatResponse)
 @traceable(name="chat_ugc_upload_endpoint", tags=["fastapi", "ugc-generation"])
 async def chat_ugc_upload_endpoint(
     message: str = Form(...),
@@ -198,8 +37,6 @@ async def chat_ugc_upload_endpoint(
     session: AsyncSession = Depends(get_db_session)
 ):
     """Upload images and generate UGC with DB & S3 storage (NO local temp files)"""
-    from ugc_orchestrator_agent import chat_with_agent
-    
     conversation_id = conversation_id or str(uuid.uuid4())
     
     # Get or create conversation
@@ -355,7 +192,7 @@ async def chat_ugc_upload_endpoint(
         if run_tree and run_tree.id:
             try:
                 tenant_id = langsmith_client._get_tenant_id()
-                project_name = os.getenv("LANGCHAIN_PROJECT", "ugc-orchestrator")
+                project_name = os.getenv("LANGCHAIN_PROJECT", LANGCHAIN_PROJECT)
                 trace_url = f"https://smith.langchain.com/o/{tenant_id}/projects/p/{project_name}/r/{run_tree.id}"
             except:
                 pass
@@ -374,66 +211,7 @@ async def chat_ugc_upload_endpoint(
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
 
 
-@app.get("/conversation/{conversation_id}")
-async def get_conversation(
-    conversation_id: str,
-    session: AsyncSession = Depends(get_db_session)
-):
-    """Retrieve conversation history from database"""
-    conversation_data = await db_helpers.get_conversation_with_data(session, conversation_id)
-    
-    if not conversation_data:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    
-    return conversation_data
-
-
-@app.delete("/conversation/{conversation_id}")
-async def delete_conversation(
-    conversation_id: str,
-    session: AsyncSession = Depends(get_db_session)
-):
-    """Delete conversation and all related data"""
-    deleted = await db_helpers.delete_conversation(session, conversation_id)
-    
-    if not deleted:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    
-    return {"status": "deleted", "conversation_id": conversation_id}
-
-
-@app.get("/image/{filename}", deprecated=True)
-async def get_image(filename: str):
-    """
-    [DEPRECATED] Retrieve a generated image by filename (legacy - for local files only)
-    
-    This endpoint is deprecated and should not be used for new flows.
-    Reason: Only works for local files, breaks in containers and multi-instance deployments.
-    
-    For new implementations:
-    - Use S3 URLs directly from the database
-    - Or generate presigned URLs for client access
-    """
-    if not os.path.exists(filename):
-        raise HTTPException(status_code=404, detail="Image not found")
-    
-    return FileResponse(filename, media_type="image/png")
-
-
-class ScriptVideoResponse(BaseModel):
-    conversation_id: str
-    script: str
-    dialogue: Optional[str] = None
-    audio_url: Optional[str] = None
-    video_url: Optional[str] = None
-    ugc_image_path: str
-    avatar_id: int
-    voice_used: Optional[str] = None
-    timestamp: str
-    trace_url: Optional[str] = None
-
-
-@app.post("/chat/ugc/script", response_model=ScriptVideoResponse)
+@router.post("/script", response_model=ScriptVideoResponse)
 @traceable(name="generate_script_audio_video_endpoint", tags=["fastapi", "script-audio-video"])
 async def generate_script_and_video(
     request: ScriptRequest,
@@ -443,11 +221,6 @@ async def generate_script_and_video(
     Generate UGC script, audio, and video (2-agent sequential workflow)
     Works with S3 URLs or local paths
     """
-    from crewai import Task, Crew
-    from script_agent import create_script_agent
-    from audio_video_agent import create_audio_video_agent
-    from ugc_audio_maker_tool import AVATAR_VOICE_MAP
-    
     conversation_id = request.conversation_id or str(uuid.uuid4())
     
     # Get or create conversation
@@ -580,7 +353,6 @@ Return both the audio S3 URL and video URL.""",
         # Extract S3 URL from audio result
         audio_s3_url = None
         if "https://teems-agents.s3" in audio_video_result_str:
-            import re
             urls = re.findall(r'https://teems-agents\.s3[^\s<>"{}|\\^`\[\]]+', audio_video_result_str)
             if urls:
                 audio_s3_url = urls[0]
@@ -595,7 +367,6 @@ Return both the audio S3 URL and video URL.""",
         # Extract video URL
         video_url = None
         if "Success! Output URL:" in audio_video_result_str or "https://cdn.aimlapi.com" in audio_video_result_str:
-            import re
             urls = re.findall(r'https://cdn\.aimlapi\.com[^\s<>"{}|\\^`\[\]]+', audio_video_result_str)
             if not urls:
                 urls = re.findall(r'https://[^\s<>"{}|\\^`\[\]]+\.mp4[^\s<>"{}|\\^`\[\]]*', audio_video_result_str)
@@ -614,7 +385,7 @@ Return both the audio S3 URL and video URL.""",
         if run_tree and run_tree.id:
             try:
                 tenant_id = langsmith_client._get_tenant_id()
-                project_name = os.getenv("LANGCHAIN_PROJECT", "ugc-orchestrator")
+                project_name = os.getenv("LANGCHAIN_PROJECT", LANGCHAIN_PROJECT)
                 trace_url = f"https://smith.langchain.com/o/{tenant_id}/projects/p/{project_name}/r/{run_tree.id}"
             except:
                 pass
@@ -639,8 +410,3 @@ Return both the audio S3 URL and video URL.""",
     except Exception as e:
         print(f"Error in script/audio/video generation: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)

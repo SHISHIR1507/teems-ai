@@ -2,13 +2,11 @@
 Prompt Variator Agent - Generates 4 diverse UGC prompts
 """
 from crewai import Agent, LLM
-from prompt_variator_tool import PromptVariatorTool
-from dotenv import load_dotenv
-import os
+from app.tools.prompt_variator import PromptVariatorTool
+from app.core.config import AIML_API_KEY
 import langsmith
 from langsmith import traceable
 
-load_dotenv()
 
 @traceable(
     name="create_prompt_agent",
@@ -32,7 +30,7 @@ def create_prompt_agent():
     ) as llm_trace:
         llm = LLM(
             model="gpt-5.2-2025-12-11",
-            api_key=os.getenv("AIML_API_KEY"),
+            api_key=AIML_API_KEY,
             base_url="https://api.aimlapi.com/v1",
             temperature=0.7
         )

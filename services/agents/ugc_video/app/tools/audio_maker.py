@@ -9,10 +9,8 @@ import requests
 from typing import Type
 from pydantic import BaseModel, Field
 from crewai.tools import BaseTool
-from dotenv import load_dotenv
-from s3_utils import upload_file_to_s3, get_s3_key_for_upload
-
-load_dotenv()
+from app.core.config import AIML_API_KEY
+from app.services.s3_utils import upload_file_to_s3, get_s3_key_for_upload
 
 
 AVATAR_VOICE_MAP = {
@@ -80,8 +78,7 @@ class UGCAudioMakerTool(BaseTool):
             Success message with S3 URL or error message
         """
         # Get API key
-        api_key = os.getenv("AIML_API_KEY")
-        if not api_key:
+        if not AIML_API_KEY:
             return "Error: AIML_API_KEY environment variable not set"
         
         # Map avatar_id to voice
@@ -90,7 +87,7 @@ class UGCAudioMakerTool(BaseTool):
         try:
             url = "https://api.aimlapi.com/v1/tts"
             headers = {
-                "Authorization": f"Bearer {api_key}",
+                "Authorization": f"Bearer {AIML_API_KEY}",
                 "Content-Type": "application/json"
             }
             payload = {
@@ -141,17 +138,3 @@ class UGCAudioMakerTool(BaseTool):
             
         except Exception as e:
             return f"Error generating audio: {str(e)}"
-
-
-# Example usage
-if __name__ == "__main__":
-    tool = UGCAudioMakerTool()
-    
-    # Test with avatar_id 1 (Harry voice)
-    result = tool._run(
-        dialogue_text="I’m just taking a quiet minute in here, holding my Starbucks cup, letting the warmth settle in, and easing my mind back into the day.",
-        avatar_id=2,
-        output_filename="test_ugc_audio.mp3"
-    )
-    
-    print(result)

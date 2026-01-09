@@ -2,14 +2,12 @@
 Audio+Video Generator Agent - Generates both audio and video from a script file
 """
 from crewai import Agent, LLM
-from ugc_audio_maker_tool import UGCAudioMakerTool
-from ugc_vid_maker_tool import Veo3VideoMakerTool
-from dotenv import load_dotenv
-import os
+from app.tools.audio_maker import UGCAudioMakerTool
+from app.tools.video_maker import Veo3VideoMakerTool
+from app.core.config import AIML_API_KEY
 import langsmith
 from langsmith import traceable
 
-load_dotenv()
 
 @traceable(
     name="create_audio_video_agent",
@@ -34,7 +32,7 @@ def create_audio_video_agent():
     ) as llm_trace:
         llm = LLM(
             model="gpt-5.2-2025-12-11",
-            api_key=os.getenv("AIML_API_KEY"),
+            api_key=AIML_API_KEY,
             base_url="https://api.aimlapi.com/v1",
             temperature=0.7
         )

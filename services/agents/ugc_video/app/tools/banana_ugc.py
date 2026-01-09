@@ -1,6 +1,5 @@
 import requests
 import base64
-import os
 from crewai.tools import BaseTool
 from typing import Type, List, Optional
 from pydantic import BaseModel, Field
@@ -8,6 +7,10 @@ import langsmith
 from langsmith import traceable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
+from datetime import datetime
+from app.core.config import AIML_API_KEY, S3_FOLDER_PREFIX
+from app.services.s3_utils import upload_bytes_to_s3
+
 
 class BananaUGCInput(BaseModel):
     """Input schema for BananaUGCTool."""
@@ -19,6 +22,7 @@ class BananaUGCInput(BaseModel):
     )
     conversation_id: Optional[str] = Field(None, description="Conversation ID for S3 organization")
     upload_to_s3: bool = Field(default=False, description="Whether to upload generated images to S3")
+
 
 class BananaUGCTool(BaseTool):
     name: str = "Banana UGC Image Generator"
@@ -46,8 +50,7 @@ class BananaUGCTool(BaseTool):
         if len(prompts) != 4:
             return f"Error: Expected exactly 4 prompts, got {len(prompts)}"
 
-        api_key = os.getenv("AIML_API_KEY")
-        if not api_key:
+        if not AIML_API_KEY:
             return "Error: AIML_API_KEY not found in environment variables"
 
         # Validate URLs
@@ -88,7 +91,7 @@ class BananaUGCTool(BaseTool):
                     prompt,
                     f"generated_ugc_image_{idx}.png",
                     idx,
-                    api_key,
+                    AIML_API_KEY,
                     conversation_id,
                     upload_to_s3
                 )
@@ -286,16 +289,9 @@ class BananaUGCTool(BaseTool):
                 s3_url = None
                 if upload_to_s3 and conversation_id:
                     try:
-                        from s3_utils import upload_bytes_to_s3
-                        from datetime import datetime
-                        import os as os_module
-                        
                         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
                         s3_filename = f"generated_ugc_{timestamp}_{image_index}.png"
-                        
-                        # Get folder prefix from environment
-                        s3_folder_prefix = os_module.getenv("S3_FOLDER_PREFIX", "UGC_Agent")
-                        s3_key = f"{s3_folder_prefix}/generated/{conversation_id}/{s3_filename}"
+                        s3_key = f"{S3_FOLDER_PREFIX}/generated/{conversation_id}/{s3_filename}"
                         
                         # Upload bytes directly to S3 (no local file!)
                         s3_url = upload_bytes_to_s3(

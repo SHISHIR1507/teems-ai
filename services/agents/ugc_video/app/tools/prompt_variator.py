@@ -2,15 +2,15 @@
 Prompt Variator Tool for CrewAI
 Generates 4 diverse prompt variants from a base intent and images
 """
-import os
 import json
-import base64
 from crewai.tools import BaseTool
 from typing import Type
 from pydantic import BaseModel, Field
 import langsmith
 from langsmith import traceable
 from openai import OpenAI
+from app.core.config import AIML_API_KEY
+
 
 class PromptVariatorInput(BaseModel):
     """Input schema for PromptVariatorTool."""
@@ -22,6 +22,7 @@ class PromptVariatorInput(BaseModel):
     industry: str = Field(..., description="Brand industry context")
     audience: str = Field(..., description="Brand audience context")
     vibe: str = Field(..., description="Brand vibe context")
+
 
 class PromptVariatorTool(BaseTool):
     name: str = "UGC Prompt Variator"
@@ -71,7 +72,7 @@ class PromptVariatorTool(BaseTool):
             tags=["llm-initialization"]
         ) as init_trace:
             client = OpenAI(
-                api_key=os.getenv("AIML_API_KEY"),
+                api_key=AIML_API_KEY,
                 base_url="https://api.aimlapi.com/v1"
             )
             init_trace.outputs = {"client": "OpenAI"}

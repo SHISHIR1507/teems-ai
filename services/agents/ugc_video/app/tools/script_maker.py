@@ -5,14 +5,13 @@ Generates UGC dialogue and Veo-3-compatible 8-second video scripts using GPT-5.2
 
 import os
 import base64
-from typing import Type, Optional, Dict
+import uuid
+from typing import Type, Optional
 from pydantic import BaseModel, Field
 from crewai.tools import BaseTool
 from openai import OpenAI
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
+from app.core.config import AIML_API_KEY
+from app.services.s3_utils import upload_file_to_s3, get_s3_key_for_upload
 
 
 class UGCScriptMakerInput(BaseModel):
@@ -174,12 +173,11 @@ No quotes. No labels.
             S3 URL of the saved script file
         """
         # Initialize OpenAI client with AI/ML API
-        api_key = os.getenv("AIML_API_KEY")
-        if not api_key:
+        if not AIML_API_KEY:
             return "Error: AIML_API_KEY environment variable not set"
         
         client = OpenAI(
-            api_key=api_key,
+            api_key=AIML_API_KEY,
             base_url="https://api.aimlapi.com/v1"
         )
         
@@ -332,7 +330,6 @@ Use the visual identity from the UGC image reference. Create a script that showc
             
             # Generate filename if not provided
             if not output_filename:
-                import uuid
                 output_filename = f"script_{uuid.uuid4().hex[:8]}.txt"
             
             # Save to local file temporarily
@@ -341,8 +338,6 @@ Use the visual identity from the UGC image reference. Create a script that showc
             
             # Upload to S3
             try:
-                from s3_utils import upload_file_to_s3, get_s3_key_for_upload
-                
                 s3_key = get_s3_key_for_upload(conversation_id, output_filename, "script")
                 s3_url = upload_file_to_s3(output_filename, s3_key, content_type="text/plain")
                 
@@ -356,20 +351,3 @@ Use the visual identity from the UGC image reference. Create a script that showc
             
         except Exception as e:
             return f"Error generating script: {str(e)}"
-
-
-# Example usage
-if __name__ == "__main__":
-    tool = UGCScriptMakerTool()
-    
-    result = tool._run(
-        ugc_image_reference="ugc_ea0bf77a-dc81-4770-b12e-403df1597d1f_20251223_160955_1.png",
-        product_name="redbull",
-        tone="calm",
-        platform="instagram stories",
-        industry="energy drinks",
-        audience="active lifestyle enthusiasts",
-        vibe="authentic and energetic"
-    )
-    
-    print(result)

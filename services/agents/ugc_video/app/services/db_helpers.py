@@ -3,7 +3,7 @@ Database helper functions for CRUD operations
 """
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
-from database import Conversation, Message, Asset
+from app.core.database import Conversation, Message, Asset
 from typing import Optional, List, Dict
 from datetime import datetime
 

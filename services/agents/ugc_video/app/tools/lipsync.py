@@ -1,8 +1,7 @@
-import os
 import requests
 import time
 from crewai.tools import BaseTool
-from dotenv import load_dotenv
+from app.core.config import LIPSYNC_API_KEY
 
 
 class LipsyncTool(BaseTool):
@@ -32,16 +31,13 @@ class LipsyncTool(BaseTool):
         Returns:
             str: Status message with the result URL or error message
         """
-        load_dotenv()
-        
-        api_key = os.getenv("LIPSYNC_API_KEY")
-        if not api_key:
+        if not LIPSYNC_API_KEY:
             return "Error: LIPSYNC_API_KEY not found in .env file"
         
         api_url = "https://api.sync.so/v2/generate"
         
         headers = {
-            "x-api-key": api_key,
+            "x-api-key": LIPSYNC_API_KEY,
             "Content-Type": "application/json"
         }
         
@@ -80,7 +76,7 @@ class LipsyncTool(BaseTool):
                 time.sleep(poll_interval)
                 elapsed += poll_interval
                 
-                status_result = self._check_status(job_id, api_key)
+                status_result = self._check_status(job_id, LIPSYNC_API_KEY)
                 status = status_result.get("status")
                 
                 print(f"[{elapsed}s] Status: {status}")
@@ -111,17 +107,3 @@ class LipsyncTool(BaseTool):
             
         except requests.exceptions.RequestException as e:
             return f"Error generating lipsync video: {str(e)}"
-
-
-if __name__ == "__main__":
-    # Test the tool
-    tool = LipsyncTool()
-    
-    # Example with URLs
-    result = tool._run(
-        video_url="https://cdn.aimlapi.com/flamingo/files/b/0a878afc/FigQhki9o10QD81pr-zie_6e1362ec0fbd445a8302f0d3a6af5ae3.mp4",
-        audio_url="https://tmpfiles.org/dl/16870024/test_ugc_audio.mp3",
-        output_filename="test_output"
-    )
-    
-    print(result)

@@ -6,13 +6,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sess
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy import Column, String, DateTime, Boolean, Text, ForeignKey, JSON, Integer
 from datetime import datetime
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
-
-# Database URL from environment
-DATABASE_URL = os.getenv("DATABASE_URL")
+from app.core.config import DATABASE_URL
 
 # Create async engine
 engine = create_async_engine(
@@ -79,16 +73,6 @@ class Asset(Base):
     
     # Relationship
     conversation = relationship("Conversation", back_populates="assets")
-
-
-# Dependency to get async session
-async def get_db_session() -> AsyncSession:
-    """Dependency for FastAPI endpoints to get database session"""
-    async with async_session_maker() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
 
 
 # Initialize database tables

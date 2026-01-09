@@ -3,17 +3,13 @@ Veo-3.1 Image-to-Video Generator Tool for CrewAI
 Converts: (image + script) -> Veo-3.1 Image-to-Video output
 """
 
-import os
 import base64
 import time
 import requests
 from typing import Type
 from pydantic import BaseModel, Field
 from crewai.tools import BaseTool
-from dotenv import load_dotenv
-
-# Load .env variables
-load_dotenv()
+from app.core.config import AIML_API_KEY
 
 
 class Veo3VideoMakerInput(BaseModel):
@@ -69,8 +65,7 @@ class Veo3VideoMakerTool(BaseTool):
     def _run(self, image_reference: str, script_text: str, duration_seconds: int) -> str:
         """Generate Veo-3.1 video from image + script."""
 
-        api_key = os.getenv("AIML_API_KEY")
-        if not api_key:
+        if not AIML_API_KEY:
             return "Error: AIML_API_KEY environment variable not set"
 
         base_url = "https://api.aimlapi.com/v2"
@@ -83,7 +78,7 @@ class Veo3VideoMakerTool(BaseTool):
 
         # Step 1: Create video generation task
         headers = {
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": f"Bearer {AIML_API_KEY}",
             "Content-Type": "application/json"
         }
         
@@ -154,37 +149,3 @@ class Veo3VideoMakerTool(BaseTool):
 
         except Exception as e:
             return f"Error generating Veo-3.1 video: {str(e)}"
-
-
-# Example direct run
-if __name__ == "__main__":
-    tool = Veo3VideoMakerTool()
-    
-    result = tool._run(
-        image_reference="ugc_ea0bf77a-dc81-4770-b12e-403df1597d1f_20251223_160955_1.png",
-        script_text='''FORMAT: Single continuous-shot UGC video script (silent, lip-sync only) for Instagram Stories
-DURATION: 8 seconds
-OUTPUT CONSTRAINT: One shot only; no cuts, no transitions, no on-screen text; continuous speech-mimicking lip motion for the full 0–8s
-CAMERA: Medium close-up (chest to face), vertical 9:16, subtle handheld realism, fixed framing (no zoom/pan)
-SUBJECT: Same creator, outfit, hair, and setting exactly as in the provided UGC image reference; calm, confident demeanor with steady eye contact
-
-ACTION TIMELINE:
-  0–8s: The creator faces the camera in the same position and environment as the reference image. They maintain steady eye contact and perform continuous, natural speech-mimicking lip motion for the entire line: “Quick trail break—my Red Bull’s keeping me steady for the last climb. Almost at the view.”
-  - Throughout: Calm, conversational expression; slight head micro-nods timed to emphasis (“trail break,” “steady,” “last climb,” “Almost”).
-  - One hand holds a partially visible redbull can at chest/torso height near the lower edge of frame; the other arm stays relaxed and mostly out of frame. The can remains generally stable, with only tiny grip micro-adjustments.
-
-PRODUCT HANDLING: Relaxed one-hand grip; product stays below chin level at all times; never approaches mouth/face; no sipping or drinking gestures; no pointing directly at the can—just natural holding during the “trail break” moment.
-
-PRODUCT VISIBILITY: Only a partial section of the can appears in frame (cropped/obscured by fingers and framing). Fine printed text, nutrition labels, and barcodes are not fully visible; any logo presence is partial and not fully readable.
-
-MOTION STYLE: Minimal natural movement only—subtle handheld camera drift, slight posture shift, tiny hand micro-adjustments; no fast motion. Lip motion remains continuous with no pauses or resets.
-
-LIGHTING: Match the reference image lighting exactly (natural, realistic; no stylized changes).
-
-ENVIRONMENT: Exactly the same background/location as the reference image; no added props or changes.       
-
-ENDING FRAME: The creator remains in the same framing and posture as prior moments; motion gently settles while lip motion continues through the final frame, maintaining a stable, seamless end state.''',  # your script output here
-        duration_seconds=8
-    )
-
-    print(result)

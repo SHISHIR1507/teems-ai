@@ -2,75 +2,19 @@
 UGC Orchestrator with 2-Agent Sequential Workflow
 Agent 1: Prompt Variator → Agent 2: Image Generator
 """
-from crewai import Agent, Task, Crew, LLM
-from prompt_agent import create_prompt_agent
-from image_generator_agent import create_image_generator_agent
-from dotenv import load_dotenv
+from crewai import Task, Crew
+from app.agents.prompt_agent import create_prompt_agent
+from app.agents.image_agent import create_image_generator_agent
+from app.agents.chat_agent import create_chat_agent
+from app.core.config import LANGCHAIN_PROJECT
 import os
 import langsmith
 from langsmith import traceable
 
-# Load environment variables
-load_dotenv()
-
 # Initialize LangSmith tracing
 os.environ["LANGCHAIN_TRACING_V2"] = "true"
-os.environ["LANGCHAIN_PROJECT"] = os.getenv("LANGCHAIN_PROJECT", "ugc-orchestrator")
+os.environ["LANGCHAIN_PROJECT"] = LANGCHAIN_PROJECT
 
-@traceable(
-    name="create_chat_agent",
-    tags=["agent-creation", "crewai", "chat"],
-    metadata={"model": "gpt-5-2", "provider": "aiml-api", "mode": "chat"}
-)
-def create_chat_agent():
-    """
-    Create Kai - a conversational UGC creator and creative director
-    """
-    with langsmith.trace(
-        name="configure_chat_llm",
-        tags=["llm-configuration", "gpt-5.2", "chat"]
-    ) as llm_trace:
-        llm = LLM(
-            model="gpt-5.2-2025-12-11",
-            api_key=os.getenv("AIML_API_KEY"),
-            base_url="https://api.aimlapi.com/v1",
-            temperature=0.7
-        )
-        llm_trace.outputs = {"llm": "gpt-5.2-2025-12-11"}
-
-    agent = Agent(
-        role="Kai - Senior UGC Creator",
-        goal="Guide brands through UGC creation with confidence and creative direction",
-        backstory="""You are Kai — a senior UGC creator and creative director.
-
-You do not sound like software. You do not ask form-like questions. You reflect understanding first, then guide.
-
-You speak like a real teammate running UGC for the brand. You're confident, calm, human, and creator-led.
-
-Your capabilities:
-- Understand brand context (industry, audience, vibe)
-- Generate 4 diverse UGC images when users upload a person image and a product image
-- Create variations with different poses, angles, and styles
-- Provide creative direction on tone, visuals, and hooks
-
-You never mention tools, agents, models, or internal processes.
-
-When talking to users:
-- Use short paragraphs
-- No bullet dumping
-- No hype language
-- Show you understand their space
-- Be decisive and clear
-
-If users haven't uploaded images yet, guide them naturally to do so.""",
-        tools=[],
-        llm=llm,
-        verbose=True,
-        allow_delegation=False,
-        max_iter=3
-    )
-
-    return agent
 
 @traceable(
     name="handle_brand_sync",
@@ -130,6 +74,7 @@ Now respond based on the brand signals above.""",
     result = crew.kickoff()
     return result
 
+
 @traceable(
     name="chat_with_agent",
     tags=["chat", "conversation"],
@@ -172,6 +117,7 @@ Be helpful and speak like Kai - confident, calm, creator-led.{context_note}""",
     
     result = crew.kickoff()
     return result
+
 
 @traceable(
     name="generate_ugc_with_orchestrator",
@@ -382,23 +328,3 @@ The tool output contains [S3_URLS] markers that must be preserved.""",
         "generated_images": s3_urls,
         "execution_time": execution_time
     }
-
-if __name__ == "__main__":
-    print("="*60)
-    print("UGC Orchestrator Agent - Multi-Tool Intelligence")
-    print("="*60)
-
-    # Example with S3 URLs (update with your actual S3 URLs for testing)
-    result = generate_ugc_with_orchestrator(
-        person_image_url="https://your-bucket.s3.region.amazonaws.com/path/to/person.jpg",
-        product_image_url="https://your-bucket.s3.region.amazonaws.com/path/to/product.jpg",
-        base_intent="A happy person holding and showing off the product to the camera",
-        industry="fitness",
-        audience="health-conscious millennials",
-        vibe="energetic and authentic"
-    )
-
-    print("\n" + "="*60)
-    print("Orchestration Result:")
-    print("="*60)
-    print(result)
