@@ -24,7 +24,7 @@ async def get_preferences(
     
     user = await user_service.get_or_create_user(
         auth0_user_id=current_user.sub,
-        email=current_user.email or "",
+        email=current_user.email if current_user.email else None,
         name=current_user.name,
         tenant_id=current_user.tenant_id
     )
@@ -42,7 +42,7 @@ async def update_preferences(
     
     user = await user_service.get_or_create_user(
         auth0_user_id=current_user.sub,
-        email=current_user.email or "",
+        email=current_user.email if current_user.email else None,
         name=current_user.name,
         tenant_id=current_user.tenant_id
     )

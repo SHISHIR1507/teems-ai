@@ -30,7 +30,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(
         String(255), 
         unique=True, 
-        nullable=False,
+        nullable=True,
         index=True
     )
     name: Mapped[str | None] = mapped_column(String(255))
