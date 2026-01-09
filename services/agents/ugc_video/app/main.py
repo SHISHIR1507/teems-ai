@@ -10,21 +10,34 @@ from pathlib import Path
 # Dynamically locate shared libs for CORS helper
 current_file = Path(__file__).resolve()
 current_dir = current_file.parent
-while current_dir != current_dir.parent:
-    shared_libs_candidate = current_dir / "platform" / "shared_libs"
-    if shared_libs_candidate.exists():
-        shared_libs_dir = shared_libs_candidate
-        break
-    current_dir = current_dir.parent
-else:
-    # Fallback: go to repo root from app/ directory (match agent-manager pattern)
-    shared_libs_dir = current_file.parent.parent.parent / "platform" / "shared_libs"
 
-sys.path.insert(0, str(shared_libs_dir))
-try:
-    from pyshared import add_env_cors  # noqa: E402
-except ImportError:
-    # Fallback to basic CORS if shared libs not available
+# First check Docker location: /app/shared_libs (when platform/shared_libs is copied to /app/shared_libs)
+docker_shared_libs = current_file.parent.parent.parent / "shared_libs"
+if docker_shared_libs.exists():
+    shared_libs_dir = docker_shared_libs
+else:
+    # Otherwise, traverse up to find platform/shared_libs (local development)
+    while current_dir != current_dir.parent:
+        shared_libs_candidate = current_dir / "platform" / "shared_libs"
+        if shared_libs_candidate.exists():
+            shared_libs_dir = shared_libs_candidate
+            break
+        current_dir = current_dir.parent
+    else:
+        # Fallback: go to repo root from app/ directory (match agent-manager pattern)
+        shared_libs_dir = current_file.parent.parent.parent / "platform" / "shared_libs"
+
+if shared_libs_dir and shared_libs_dir.exists():
+    sys.path.insert(0, str(shared_libs_dir))
+    try:
+        from pyshared import add_env_cors  # noqa: E402
+    except ImportError:
+        # Fallback to basic CORS if shared libs not available
+        from fastapi.middleware.cors import CORSMiddleware
+        def add_env_cors(app):
+            app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+else:
+    # No shared libs found, use fallback
     from fastapi.middleware.cors import CORSMiddleware
     def add_env_cors(app):
         app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])

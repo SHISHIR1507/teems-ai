@@ -27,7 +27,7 @@ COPY services/agents/ugc_video/app ./app
 COPY services/agents/ugc_video/migrations ./migrations
 COPY services/agents/ugc_video/requirements.txt ./requirements.txt
 COPY services/agents/ugc_video/README.md ./README.md
-COPY platform ./platform
+COPY platform/shared_libs ./shared_libs
 
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
