@@ -24,7 +24,12 @@ from app.agents.audio_video_agent import create_audio_video_agent
 from app.tools.audio_maker import AVATAR_VOICE_MAP
 
 router = APIRouter()
-langsmith_client = Client()
+# Initialize LangSmith client with error handling
+try:
+    langsmith_client = Client()
+except Exception as e:
+    print(f"Warning: Failed to initialize LangSmith client: {e}. LangSmith features will be disabled.")
+    langsmith_client = None
 
 
 @router.post("/upload", response_model=ChatResponse)
@@ -189,7 +194,7 @@ async def chat_ugc_upload_endpoint(
         
         # Get trace URL
         trace_url = None
-        if run_tree and run_tree.id:
+        if run_tree and run_tree.id and langsmith_client:
             try:
                 tenant_id = langsmith_client._get_tenant_id()
                 project_name = os.getenv("LANGCHAIN_PROJECT", LANGCHAIN_PROJECT)
@@ -382,7 +387,7 @@ Return both the audio S3 URL and video URL.""",
         
         # Get trace URL
         trace_url = None
-        if run_tree and run_tree.id:
+        if run_tree and run_tree.id and langsmith_client:
             try:
                 tenant_id = langsmith_client._get_tenant_id()
                 project_name = os.getenv("LANGCHAIN_PROJECT", LANGCHAIN_PROJECT)

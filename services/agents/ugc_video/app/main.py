@@ -2,23 +2,40 @@
 FastAPI application entry point
 """
 from fastapi import FastAPI, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import os
+import sys
+from pathlib import Path
+
+# Dynamically locate shared libs for CORS helper
+current_file = Path(__file__).resolve()
+current_dir = current_file.parent
+while current_dir != current_dir.parent:
+    shared_libs_candidate = current_dir / "platform" / "shared_libs"
+    if shared_libs_candidate.exists():
+        shared_libs_dir = shared_libs_candidate
+        break
+    current_dir = current_dir.parent
+else:
+    # Fallback: go to repo root from app/ directory (match agent-manager pattern)
+    shared_libs_dir = current_file.parent.parent.parent / "platform" / "shared_libs"
+
+sys.path.insert(0, str(shared_libs_dir))
+try:
+    from pyshared import add_env_cors  # noqa: E402
+except ImportError:
+    # Fallback to basic CORS if shared libs not available
+    from fastapi.middleware.cors import CORSMiddleware
+    def add_env_cors(app):
+        app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 from app.core.database import init_db
 from app.api.routes import brand_sync, ugc, conversation
 
 app = FastAPI(title="UGC Orchestrator API with DB & S3", version="2.0.0")
 
-# Enable CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Add CORS middleware (env-driven origins with localhost defaults)
+add_env_cors(app)
 
 # Include routers
 app.include_router(brand_sync.router, prefix="/orchestrator", tags=["brand-sync"])
