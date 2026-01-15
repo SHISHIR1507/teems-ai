@@ -1,10 +1,11 @@
 from sqlalchemy import Column, String, Text, JSON, DateTime, ForeignKey, Integer
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import DeclarativeBase
 from pgvector.sqlalchemy import Vector
 import uuid
 from datetime import datetime
 
-Base = declarative_base()
+class Base(DeclarativeBase):
+    pass
 
 class Call(Base):
     __tablename__ = "calls"

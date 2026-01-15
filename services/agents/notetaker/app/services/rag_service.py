@@ -1,5 +1,7 @@
 import numpy as np
 from typing import List, Dict
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from app.services.chunker import chunk_text_for_rag
 from app.services.embeddings import embedder
 from app.services.llm import llm
@@ -9,7 +11,7 @@ class RAGService:
     def __init__(self):
         pass
     
-    async def process_meeting_for_rag(self, call_data: Dict, db):
+    async def process_meeting_for_rag(self, call_data: Dict, db: AsyncSession):
         """Chunk meeting and create embeddings"""
         
         if not call_data.get("transcript"):
@@ -35,21 +37,23 @@ class RAGService:
             )
             db.add(chunk_record)
         
-        db.commit()
+        await db.commit()
         return len(chunks)
     
-    async def search_relevant_chunks(self, query: str, call_id: str, db, top_k: int = 5) -> List[str]:
+    async def search_relevant_chunks(self, query: str, call_id: str, db: AsyncSession, top_k: int = 5) -> List[str]:
         """Find relevant chunks using vector similarity"""
 
-        # Get query embedding (same as before)
+        # Get query embedding
         query_embedding = await embedder.embed_one(query)
         
-        # NEW: Database does vector search - NO Python loop!
-        chunks = db.query(CallChunk).filter(
-            CallChunk.call_id == call_id
-        ).order_by(
-            CallChunk.embedding.cosine_distance(query_embedding)
-        ).limit(top_k).all()
+        # Database does vector search
+        result = await db.execute(
+            select(CallChunk)
+            .filter(CallChunk.call_id == call_id)
+            .order_by(CallChunk.embedding.cosine_distance(query_embedding))
+            .limit(top_k)
+        )
+        chunks = result.scalars().all()
         
         if not chunks:
             return []

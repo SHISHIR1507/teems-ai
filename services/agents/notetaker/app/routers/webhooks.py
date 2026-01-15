@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Request, Depends
 from fastapi.responses import Response
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from datetime import datetime
 import json
 import requests
@@ -38,7 +39,7 @@ async def nylas_webhook_get(request: Request, challenge: str = None):
     return Response(content="OK", media_type="text/plain")
 
 @router.post("/webhooks/nylas")
-async def nylas_webhook_post(request: Request, db: Session = Depends(get_db)):
+async def nylas_webhook_post(request: Request, db: AsyncSession = Depends(get_db)):
     """
     Handle POST requests for actual webhook events.
     """
@@ -98,12 +99,20 @@ async def nylas_webhook_post(request: Request, db: Session = Depends(get_db)):
             call = None
             
             # 1. Try by Nylas meeting_id (exact match)
-            call = db.query(Call).filter(Call.meeting_id == nylas_meeting_id).first()
+            result = await db.execute(
+                select(Call).filter(Call.meeting_id == nylas_meeting_id)
+            )
+            call = result.scalar_one_or_none()
             
             # 2. Try by title if not found (Nylas sometimes sends different IDs)
             if not call:
                 print(f"🔍 No meeting found by Nylas ID, trying by title: '{meeting_name}'")
-                call = db.query(Call).filter(Call.title == meeting_name).order_by(Call.created_at.desc()).first()
+                result = await db.execute(
+                    select(Call)
+                    .filter(Call.title == meeting_name)
+                    .order_by(Call.created_at.desc())
+                )
+                call = result.scalar_one_or_none()
             
             if not call:
                 print(f"No meeting found for:")
@@ -125,7 +134,7 @@ async def nylas_webhook_post(request: Request, db: Session = Depends(get_db)):
             # ========== UPDATE MEETING ID IF NEEDED ==========
             if not call.meeting_id or call.meeting_id != nylas_meeting_id:
                 call.meeting_id = nylas_meeting_id
-                db.commit()
+                await db.commit()
                 print(f"📝 Updated meeting with Nylas ID: {nylas_meeting_id}")
             
             # Get media URLs
@@ -206,7 +215,7 @@ async def nylas_webhook_post(request: Request, db: Session = Depends(get_db)):
                     print(f"Error fetching action items: {e}")
             
             # Save all changes
-            db.commit()
+            await db.commit()
             print(f"Added transcript/summary to meeting: {call.title}")
             
             

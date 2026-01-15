@@ -48,11 +48,13 @@ app = FastAPI(title="Notetaker Service")
 add_env_cors(app)
 
 # Initialize database (with error handling)
-try:
-    init_db()
-except Exception as e:
-    print(f"⚠️ Database initialization warning: {e}")
-    print("Service will start but database operations may fail until database is available")
+@app.on_event("startup")
+async def startup_event():
+    try:
+        await init_db()
+    except Exception as e:
+        print(f"⚠️ Database initialization warning: {e}")
+        print("Service will start but database operations may fail until database is available")
 
 # Include routers
 app.include_router(meetings.router, tags=["meetings"])

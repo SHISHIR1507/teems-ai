@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from datetime import datetime, timezone
 import requests
 from app.core.database import get_db
@@ -11,7 +12,7 @@ from app.services.rag_service import rag_service
 router = APIRouter()
 
 @router.post("/schedule-notetaker")
-def schedule_notetaker(payload: dict, db: Session = Depends(get_db)):
+async def schedule_notetaker(payload: dict, db: AsyncSession = Depends(get_db)):
 
     meeting_link = payload.get("meeting_link")
     start_time = payload.get("start_time")
@@ -37,8 +38,8 @@ def schedule_notetaker(payload: dict, db: Session = Depends(get_db)):
         created_at=datetime.utcnow()
     )
     db.add(call)
-    db.commit()
-    db.refresh(call)
+    await db.commit()
+    await db.refresh(call)
     
     print(f"Saved meeting to database: {call.id} - {title}")
     print(f" Meeting time: {start_dt}")
@@ -81,7 +82,7 @@ def schedule_notetaker(payload: dict, db: Session = Depends(get_db)):
     if res.status_code not in [200, 201, 202]:
         # Rollback our database entry if Nylas fails
         db.delete(call)
-        db.commit()
+        await db.commit()
         raise HTTPException(status_code=500, detail=res.json())
     
     # ========== SAVE NYLAS MEETING ID ==========
@@ -91,7 +92,7 @@ def schedule_notetaker(payload: dict, db: Session = Depends(get_db)):
         
         if nylas_meeting_id:
             call.meeting_id = nylas_meeting_id
-            db.commit()
+            await db.commit()
             print(f" Linked to Nylas meeting ID: {nylas_meeting_id}")
         else:
             print(f" No meeting ID in Nylas response")
@@ -116,7 +117,7 @@ def schedule_notetaker(payload: dict, db: Session = Depends(get_db)):
 async def chat_about_meeting(
     call_id: str,
     request: ChatRequest,  # ← Use Pydantic model
-    db: Session = Depends(get_db)
+    db: AsyncSession = Depends(get_db)
 ):
     query = request.query.strip()
     
@@ -124,7 +125,8 @@ async def chat_about_meeting(
         raise HTTPException(status_code=400, detail="Query is required")
     
     # Get meeting
-    call = db.query(Call).filter(Call.id == call_id).first()
+    result = await db.execute(select(Call).filter(Call.id == call_id))
+    call = result.scalar_one_or_none()
     
     if not call:
         raise HTTPException(status_code=404, detail="Meeting not found")
