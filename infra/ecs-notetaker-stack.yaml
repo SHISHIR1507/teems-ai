@@ -1,0 +1,288 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: ECS Fargate service with ALB for Notetaker service
+
+Parameters:
+  AppName:
+    Type: String
+    Default: teems-notetaker
+  ContainerImage:
+    Type: String
+    Description: Full ECR image URI (including tag) for Notetaker service
+  ContainerPort:
+    Type: Number
+    Default: 8000
+  DesiredCount:
+    Type: Number
+    Default: 1
+  HealthCheckPath:
+    Type: String
+    Default: /health
+  DatabaseUrl:
+    Type: String
+    Default: ""
+    Description: PostgreSQL database URL (with pgvector extension)
+  NYLASApiKey:
+    Type: String
+    Default: ""
+    Description: Nylas API key for meeting transcription
+  NYLASBaseUrl:
+    Type: String
+    Default: https://api.us.nylas.com
+    Description: Nylas API base URL
+  AIMLApiKey:
+    Type: String
+    Default: ""
+    Description: AIML API key for embeddings and LLM
+  AIMLBaseUrl:
+    Type: String
+    Default: https://api.aimlapi.com/v1
+    Description: AIML API base URL
+  EmbeddingModel:
+    Type: String
+    Default: text-embedding-3-small
+    Description: Embedding model name
+  LLMModel:
+    Type: String
+    Default: gpt-4o
+    Description: LLM model name
+  CORSAllowedOrigins:
+    Type: String
+    Default: ""
+    Description: Comma-separated list of allowed CORS origins (optional, defaults to localhost + env var)
+  SSLCertificateArn:
+    Type: String
+    Default: ""
+    Description: ACM certificate ARN for this service's HTTPS listener
+  SharedVPCId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID from brandfetch stack (shared VPC)
+  SharedSubnet1Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: Public Subnet 1 ID from brandfetch stack
+  SharedSubnet2Id:
+    Type: AWS::EC2::Subnet::Id
+    Description: Public Subnet 2 ID from brandfetch stack
+
+Conditions:
+  HasSSLCertificate: !Not [!Equals [!Ref SSLCertificateArn, ""]]
+
+Resources:
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Sub "${AppName}-cluster"
+
+  LoadBalancerSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access to ALB for Notetaker service
+      VpcId: !Ref SharedVPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+
+  ServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Access for ECS tasks
+      VpcId: !Ref SharedVPCId
+      SecurityGroupIngress:
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 65535
+          SourceSecurityGroupId: !Ref LoadBalancerSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+
+  LoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "${AppName}-alb"
+      Scheme: internet-facing
+      Subnets:
+        - !Ref SharedSubnet1Id
+        - !Ref SharedSubnet2Id
+      SecurityGroups:
+        - !Ref LoadBalancerSecurityGroup
+
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "${AppName}-tg"
+      VpcId: !Ref SharedVPCId
+      TargetType: ip
+      Port: !Ref ContainerPort
+      Protocol: HTTP
+      HealthCheckPath: !Ref HealthCheckPath
+      HealthCheckProtocol: HTTP
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: "200-399"
+
+  Listener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - !If
+          - HasSSLCertificate
+          - Type: redirect
+            RedirectConfig:
+              Protocol: HTTPS
+              Port: "443"
+              Host: "#{host}"
+              Path: "/#{path}"
+              Query: "#{query}"
+              StatusCode: HTTP_301
+          - Type: forward
+            TargetGroupArn: !Ref TargetGroup
+
+  HTTPSListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: HasSSLCertificate
+    Properties:
+      LoadBalancerArn: !Ref LoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref SSLCertificateArn
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AppName}-task-execution-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AppName}-task-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${AppName}"
+      RetentionInDays: 14
+
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    DependsOn:
+      - LogGroup
+    Properties:
+      Family: !Sub "${AppName}-task"
+      Cpu: "512"
+      Memory: "1024"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: !Sub "${AppName}-container"
+          Image: !Ref ContainerImage
+          PortMappings:
+            - ContainerPort: !Ref ContainerPort
+          Essential: true
+          Environment:
+            - Name: ENV
+              Value: production
+            - Name: LOG_LEVEL
+              Value: info
+            - Name: DATABASE_URL
+              Value: !Ref DatabaseUrl
+            - Name: NYLAS_API_KEY
+              Value: !Ref NYLASApiKey
+            - Name: NYLAS_BASE_URL
+              Value: !Ref NYLASBaseUrl
+            - Name: AIML_API_KEY
+              Value: !Ref AIMLApiKey
+            - Name: AIML_BASE_URL
+              Value: !Ref AIMLBaseUrl
+            - Name: EMBEDDING_MODEL
+              Value: !Ref EmbeddingModel
+            - Name: LLM_MODEL
+              Value: !Ref LLMModel
+            - Name: CORS_ALLOWED_ORIGINS
+              Value: !Ref CORSAllowedOrigins
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Sub "/ecs/${AppName}"
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+
+  Service:
+    Type: AWS::ECS::Service
+    DependsOn:
+      - Listener
+    Properties:
+      ServiceName: !Sub "${AppName}-service"
+      Cluster: !Ref Cluster
+      DesiredCount: !Ref DesiredCount
+      LaunchType: FARGATE
+      TaskDefinition: !Ref TaskDefinition
+      HealthCheckGracePeriodSeconds: 60
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 50
+        MaximumPercent: 200
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref ServiceSecurityGroup
+          Subnets:
+            - !Ref SharedSubnet1Id
+            - !Ref SharedSubnet2Id
+      LoadBalancers:
+        - ContainerName: !Sub "${AppName}-container"
+          ContainerPort: !Ref ContainerPort
+          TargetGroupArn: !Ref TargetGroup
+
+Outputs:
+  LoadBalancerDNS:
+    Description: Public DNS name for the Application Load Balancer
+    Value: !GetAtt LoadBalancer.DNSName

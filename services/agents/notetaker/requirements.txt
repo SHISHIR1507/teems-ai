@@ -1,0 +1,13 @@
+fastapi 
+uvicorn
+requests
+psycopg2-binary
+sqlalchemy
+python-dotenv
+pytz
+openai
+numpy
+python-multipart
+google-genai
+pgvector
+sqlalchemy-vector
