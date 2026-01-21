@@ -1,6 +1,4 @@
 from fastapi import APIRouter, UploadFile, File, Form, HTTPException, Request, Depends
-from fastapi.responses import StreamingResponse, HTMLResponse
-from fastapi.templating import Jinja2Templates
 import json
 from werkzeug.utils import secure_filename
 
@@ -19,11 +17,6 @@ from ..auth import AuthenticatedUser, require_tenant
 router = APIRouter()
 settings = get_settings()
 
-# Templates setup (if you have a templates folder)
-try:
-    templates = Jinja2Templates(directory="templates")
-except:
-    templates = None
 
 
 @router.get("/health")
@@ -32,13 +25,23 @@ async def health():
     return {"status": "ok"}
 
 
-@router.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    """Serve the main HTML page"""
-    if templates:
-        return templates.TemplateResponse("index.html", {"request": request})
-    else:
-        return HTMLResponse(content="<h1>Eve AI Server</h1><p>API is running. Use /docs for API documentation.</p>")
+@router.get("/")
+async def index():
+    """API root endpoint"""
+    return {
+        "message": "Eve AI Server API",
+        "status": "running",
+        "version": "1.0.0",
+        "endpoints": {
+            "docs": "/docs",
+            "redoc": "/redoc", 
+            "health": "/health",
+            "chat": "/api/chat",
+            "upload": "/api/documents/upload",
+            "documents": "/api/documents"
+        },
+        "description": "AI Assistant Backend API"
+    }
 
 
 @router.post("/api/chat")
