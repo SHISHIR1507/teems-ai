@@ -10,6 +10,7 @@ sqlalchemy==2.0.36
 psycopg2-binary==2.9.10
 pgvector==0.3.6
 alembic==1.14.0
+asyncpg>=0.29,<0.30
 
 # S3 Storage
 boto3==1.35.80
@@ -48,3 +49,4 @@ python-jose[cryptography]==3.3.0
 
 # Jinja2 for templates (FastAPI)
 jinja2==3.1.4
+
