@@ -13,6 +13,8 @@ from ..services.rag.s3_service import s3_service
 from ..services.recommendation.engine import recommend_actions
 from ..config import get_settings
 from ..auth import AuthenticatedUser, require_tenant
+from fastapi.responses import StreamingResponse
+
 
 router = APIRouter()
 settings = get_settings()
