@@ -87,7 +87,7 @@ async def create_presentation(
         user_id=user_id,
         title=title,
         slidespeak_task_id=slidespeak_task_id,
-        metadata=metadata or {},
+        meta_data=metadata or {},
         status="pending"
     )
     session.add(presentation)

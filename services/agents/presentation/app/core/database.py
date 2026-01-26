@@ -85,7 +85,7 @@ class Presentation(Base):
     s3_url = Column(String, nullable=True)
     s3_key = Column(String, nullable=True)
     status = Column(String, nullable=False, default="pending")  # pending, processing, completed, failed
-    metadata = Column(JSON, nullable=True)  # length, template, tone, etc.
+    meta_data = Column(JSON, nullable=True)  # length, template, tone, etc.
     error = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
