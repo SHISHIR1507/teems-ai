@@ -1,0 +1,456 @@
+name: Deploy Presentation Agent to ECS
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'services/agents/presentation/**'
+      - 'infra/ecs-presentation-stack.yaml'
+      - '.github/workflows/deploy-presentation-ecs.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+  APP_NAME: teems-presentation
+  ECR_REPOSITORY: teems-presentation
+  CLOUD_FORMATION_STACK: teems-presentation-ecs
+
+jobs:
+  deploy:
+    name: Build, Push, and Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Ensure ECR repository exists
+        run: |
+          set -e
+          if ! aws ecr describe-repositories --repository-names "${ECR_REPOSITORY}" >/dev/null 2>&1; then
+            aws ecr create-repository --repository-name "${ECR_REPOSITORY}" >/dev/null
+          fi
+
+      - name: Build and push Docker image
+        env:
+          REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          set -e
+          IMAGE_TAG="${GITHUB_SHA}"
+          IMAGE_URI="${REGISTRY}/${ECR_REPOSITORY}:${IMAGE_TAG}"
+          LATEST_URI="${REGISTRY}/${ECR_REPOSITORY}:latest"
+
+          docker build \
+            -f services/agents/presentation/Dockerfile \
+            -t "${IMAGE_URI}" \
+            -t "${LATEST_URI}" \
+            .
+
+          docker push "${IMAGE_URI}"
+          docker push "${LATEST_URI}"
+
+          echo "IMAGE_URI=${IMAGE_URI}" >> "$GITHUB_ENV"
+
+      - name: Check and cleanup failed stack (if in ROLLBACK_COMPLETE)
+        run: |
+          set -e
+          # Check if stack exists
+          if ! aws cloudformation describe-stacks --stack-name "${CLOUD_FORMATION_STACK}" >/dev/null 2>&1; then
+            echo "Stack does not exist, nothing to clean up"
+            exit 0
+          fi
+
+          # Get stack status
+          STACK_STATUS=$(aws cloudformation describe-stacks \
+            --stack-name "${CLOUD_FORMATION_STACK}" \
+            --query "Stacks[0].StackStatus" \
+            --output text 2>/dev/null || echo "")
+
+          if [[ -z "${STACK_STATUS}" ]]; then
+            echo "Could not determine stack status, skipping cleanup"
+            exit 0
+          fi
+
+          echo "Current stack status: ${STACK_STATUS}"
+
+          if [[ "${STACK_STATUS}" != "ROLLBACK_COMPLETE" ]]; then
+            echo "Stack is not in ROLLBACK_COMPLETE state, no cleanup needed"
+            exit 0
+          fi
+
+          echo "Stack is in ROLLBACK_COMPLETE state. Deleting stack before redeployment..."
+          aws cloudformation delete-stack --stack-name "${CLOUD_FORMATION_STACK}"
+
+          echo "Waiting for stack deletion to complete (max 10 minutes)..."
+          MAX_WAIT=600
+          ELAPSED=0
+          POLL_INTERVAL=15
+
+          while [ $ELAPSED -lt $MAX_WAIT ]; do
+            # Check if stack still exists
+            if ! aws cloudformation describe-stacks --stack-name "${CLOUD_FORMATION_STACK}" >/dev/null 2>&1; then
+              echo "Stack deleted successfully"
+              exit 0
+            fi
+
+            # Get current status
+            CURRENT_STATUS=$(aws cloudformation describe-stacks \
+              --stack-name "${CLOUD_FORMATION_STACK}" \
+              --query "Stacks[0].StackStatus" \
+              --output text 2>/dev/null || echo "")
+
+            if [[ -z "${CURRENT_STATUS}" ]]; then
+              echo "Stack deleted successfully (no longer exists)"
+              exit 0
+            fi
+
+            echo "  [${ELAPSED}s] Deletion in progress: ${CURRENT_STATUS}"
+
+            # Check for completion states
+            if [[ "${CURRENT_STATUS}" == "DELETE_COMPLETE" ]]; then
+              echo "Stack deletion completed"
+              exit 0
+            fi
+
+            # If status changed to something unexpected, log and continue
+            if [[ "${CURRENT_STATUS}" != *"DELETE"* ]] && [[ "${CURRENT_STATUS}" != *"ROLLBACK"* ]]; then
+              echo "Stack status changed to ${CURRENT_STATUS}, assuming deletion completed"
+              exit 0
+            fi
+
+            sleep $POLL_INTERVAL
+            ELAPSED=$((ELAPSED + POLL_INTERVAL))
+          done
+
+          # Final check - if stack still exists, warn but continue
+          if aws cloudformation describe-stacks --stack-name "${CLOUD_FORMATION_STACK}" >/dev/null 2>&1; then
+            echo "Warning: Stack deletion still in progress after timeout. Proceeding anyway..."
+          else
+            echo "Stack deletion completed"
+          fi
+
+      - name: Wait for stack to be ready (if exists)
+        timeout-minutes: 20
+        run: |
+          set -e
+          if aws cloudformation describe-stacks --stack-name "${CLOUD_FORMATION_STACK}" >/dev/null 2>&1; then
+            echo "Stack exists, checking status..."
+            STACK_STATUS=$(aws cloudformation describe-stacks \
+              --stack-name "${CLOUD_FORMATION_STACK}" \
+              --query "Stacks[0].StackStatus" \
+              --output text)
+
+            echo "Current stack status: ${STACK_STATUS}"
+
+            if [[ "${STACK_STATUS}" == *"IN_PROGRESS"* ]]; then
+              echo "Stack is ${STACK_STATUS}, waiting for completion (max 20 minutes)..."
+              MAX_WAIT=1200
+              ELAPSED=0
+              POLL_INTERVAL=30
+
+              while [ $ELAPSED -lt $MAX_WAIT ]; do
+                CURRENT_STATUS=$(aws cloudformation describe-stacks \
+                  --stack-name "${CLOUD_FORMATION_STACK}" \
+                  --query "Stacks[0].StackStatus" \
+                  --output text 2>/dev/null || echo "UNKNOWN")
+
+                echo "  [${ELAPSED}s] Stack status: ${CURRENT_STATUS}"
+
+                if [[ ! "${CURRENT_STATUS}" == *"IN_PROGRESS"* ]]; then
+                  echo "Stack reached stable state: ${CURRENT_STATUS}"
+                  break
+                fi
+
+                sleep $POLL_INTERVAL
+                ELAPSED=$((ELAPSED + POLL_INTERVAL))
+              done
+
+              FINAL_STATUS=$(aws cloudformation describe-stacks \
+                --stack-name "${CLOUD_FORMATION_STACK}" \
+                --query "Stacks[0].StackStatus" \
+                --output text)
+
+              if [[ "${FINAL_STATUS}" == *"IN_PROGRESS"* ]]; then
+                echo "Warning: Stack still in progress after timeout. Proceeding anyway..."
+              else
+                echo "Stack is now: ${FINAL_STATUS}"
+              fi
+            else
+              echo "Stack is already in stable state: ${STACK_STATUS}"
+            fi
+          else
+            echo "Stack does not exist yet, will create new stack"
+          fi
+
+      - name: Get shared VPC resources from brandfetch stack
+        id: get-vpc
+        run: |
+          set -e
+          BRANDFETCH_STACK="teems-brandfetch-ecs"
+          
+          echo "Checking for brandfetch stack: ${BRANDFETCH_STACK}"
+          
+          # Check if brandfetch stack exists
+          if ! aws cloudformation describe-stacks --stack-name "${BRANDFETCH_STACK}" >/dev/null 2>&1; then
+            echo "::error::Brandfetch stack '${BRANDFETCH_STACK}' does not exist."
+            echo "Presentation Agent requires the brandfetch stack to be deployed first to share VPC resources."
+            echo "Please deploy brandfetch service first, then retry presentation deployment."
+            exit 1
+          fi
+          
+          # Check if stack is in a valid state
+          STACK_STATUS=$(aws cloudformation describe-stacks \
+            --stack-name "${BRANDFETCH_STACK}" \
+            --query "Stacks[0].StackStatus" \
+            --output text 2>/dev/null || echo "")
+          
+          if [[ -z "${STACK_STATUS}" ]]; then
+            echo "::error::Could not determine brandfetch stack status"
+            exit 1
+          fi
+          
+          if [[ "${STACK_STATUS}" != "CREATE_COMPLETE" ]] && [[ "${STACK_STATUS}" != "UPDATE_COMPLETE" ]]; then
+            echo "::error::Brandfetch stack is in state '${STACK_STATUS}', not ready for sharing VPC resources"
+            echo "Stack must be in CREATE_COMPLETE or UPDATE_COMPLETE state"
+            exit 1
+          fi
+          
+          echo "Brandfetch stack status: ${STACK_STATUS}"
+          
+          # Get VPC and Subnet IDs from brandfetch stack outputs
+          echo "Fetching VPC resources from brandfetch stack outputs..."
+          
+          VPC_ID=$(aws cloudformation describe-stacks \
+            --stack-name "${BRANDFETCH_STACK}" \
+            --query "Stacks[0].Outputs[?OutputKey=='VPCId'].OutputValue" \
+            --output text 2>/dev/null || echo "")
+          
+          SUBNET1_ID=$(aws cloudformation describe-stacks \
+            --stack-name "${BRANDFETCH_STACK}" \
+            --query "Stacks[0].Outputs[?OutputKey=='PublicSubnet1Id'].OutputValue" \
+            --output text 2>/dev/null || echo "")
+          
+          SUBNET2_ID=$(aws cloudformation describe-stacks \
+            --stack-name "${BRANDFETCH_STACK}" \
+            --query "Stacks[0].Outputs[?OutputKey=='PublicSubnet2Id'].OutputValue" \
+            --output text 2>/dev/null || echo "")
+          
+          # Validate all values are present
+          if [[ -z "${VPC_ID}" ]] || [[ "${VPC_ID}" == "None" ]]; then
+            echo "::error::Could not retrieve VPC ID from brandfetch stack"
+            echo "Make sure brandfetch stack has VPCId output defined"
+            exit 1
+          fi
+          
+          if [[ -z "${SUBNET1_ID}" ]] || [[ "${SUBNET1_ID}" == "None" ]]; then
+            echo "::error::Could not retrieve PublicSubnet1Id from brandfetch stack"
+            echo "Make sure brandfetch stack has PublicSubnet1Id output defined"
+            exit 1
+          fi
+          
+          if [[ -z "${SUBNET2_ID}" ]] || [[ "${SUBNET2_ID}" == "None" ]]; then
+            echo "::error::Could not retrieve PublicSubnet2Id from brandfetch stack"
+            echo "Make sure brandfetch stack has PublicSubnet2Id output defined"
+            exit 1
+          fi
+          
+          # Verify resources exist in AWS
+          echo "Validating VPC and subnet resources exist..."
+          
+          if ! aws ec2 describe-vpcs --vpc-ids "${VPC_ID}" >/dev/null 2>&1; then
+            echo "::error::VPC ${VPC_ID} does not exist in AWS"
+            exit 1
+          fi
+          
+          if ! aws ec2 describe-subnets --subnet-ids "${SUBNET1_ID}" >/dev/null 2>&1; then
+            echo "::error::Subnet ${SUBNET1_ID} does not exist in AWS"
+            exit 1
+          fi
+          
+          if ! aws ec2 describe-subnets --subnet-ids "${SUBNET2_ID}" >/dev/null 2>&1; then
+            echo "::error::Subnet ${SUBNET2_ID} does not exist in AWS"
+            exit 1
+          fi
+          
+          # Export to environment variables for next step
+          echo "VPC_ID=${VPC_ID}" >> "$GITHUB_ENV"
+          echo "SUBNET1_ID=${SUBNET1_ID}" >> "$GITHUB_ENV"
+          echo "SUBNET2_ID=${SUBNET2_ID}" >> "$GITHUB_ENV"
+          
+          echo "✓ Successfully retrieved shared VPC resources:"
+          echo "  VPC ID: ${VPC_ID}"
+          echo "  Subnet 1: ${SUBNET1_ID}"
+          echo "  Subnet 2: ${SUBNET2_ID}"
+
+      - name: Check SSL Certificate configuration
+        env:
+          SSL_CERTIFICATE_ARN: ${{ secrets.SSL_CERTIFICATE_ARN || secrets.PRESENTATION_SSL_CERTIFICATE_ARN }}
+        run: |
+          if [[ -n "${SSL_CERTIFICATE_ARN}" ]]; then
+            echo "✓ SSL Certificate ARN is configured - HTTPS will be enabled"
+            echo "Certificate ARN: ${SSL_CERTIFICATE_ARN:0:50}..."
+          else
+            echo "⚠ SSL Certificate ARN is not set - HTTPS will be disabled (HTTP only)"
+            echo "To enable HTTPS, add SSL_CERTIFICATE_ARN or PRESENTATION_SSL_CERTIFICATE_ARN to GitHub secrets"
+          fi
+
+      - name: Check CORS configuration
+        env:
+          CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS || secrets.PRESENTATION_CORS_ALLOWED_ORIGINS || '' }}
+        run: |
+          if [[ -n "${CORS_ALLOWED_ORIGINS}" ]]; then
+            echo "✓ CORS origins configured: ${CORS_ALLOWED_ORIGINS}"
+          else
+            echo "⚠ CORS origins not set - will use default localhost origins"
+            echo "To configure production origins, add CORS_ALLOWED_ORIGINS or PRESENTATION_CORS_ALLOWED_ORIGINS to GitHub secrets"
+          fi
+
+      - name: Deploy CloudFormation stack
+        id: deploy-stack
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL || secrets.PRESENTATION_DATABASE_URL }}
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME || secrets.PRESENTATION_S3_BUCKET_NAME }}
+          S3_FOLDER_PREFIX: ${{ secrets.S3_FOLDER_PREFIX || secrets.PRESENTATION_S3_FOLDER_PREFIX || 'Presentation_Agent' }}
+          SLIDESPEAK_API_KEY: ${{ secrets.SLIDESPEAK_API_KEY || secrets.PRESENTATION_SLIDESPEAK_API_KEY }}
+          AIML_API_KEY: ${{ secrets.AIML_API_KEY || secrets.PRESENTATION_AIML_API_KEY }}
+          LLM_MODEL: ${{ secrets.LLM_MODEL || secrets.PRESENTATION_LLM_MODEL || 'openai/gpt-4o' }}
+          WEBHOOK_BASE_URL: ${{ secrets.WEBHOOK_BASE_URL || secrets.PRESENTATION_WEBHOOK_BASE_URL || '' }}
+          AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN || secrets.PRESENTATION_AUTH0_DOMAIN }}
+          AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE || secrets.PRESENTATION_AUTH0_AUDIENCE }}
+          AUTH0_ALGORITHM: ${{ secrets.AUTH0_ALGORITHM || secrets.PRESENTATION_AUTH0_ALGORITHM || 'RS256' }}
+          CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS || secrets.PRESENTATION_CORS_ALLOWED_ORIGINS || '' }}
+          SSL_CERTIFICATE_ARN: ${{ secrets.SSL_CERTIFICATE_ARN || secrets.PRESENTATION_SSL_CERTIFICATE_ARN }}
+        run: |
+          set -e
+          
+          # Validate VPC environment variables are set
+          if [[ -z "${VPC_ID}" ]] || [[ -z "${SUBNET1_ID}" ]] || [[ -z "${SUBNET2_ID}" ]]; then
+            echo "::error::VPC resources not available. VPC_ID, SUBNET1_ID, and SUBNET2_ID must be set."
+            echo "VPC_ID: ${VPC_ID:-NOT_SET}"
+            echo "SUBNET1_ID: ${SUBNET1_ID:-NOT_SET}"
+            echo "SUBNET2_ID: ${SUBNET2_ID:-NOT_SET}"
+            exit 1
+          fi
+          
+          # Validate required secrets
+          if [[ -z "${DATABASE_URL}" ]]; then
+            echo "::error::DATABASE_URL is required. Set DATABASE_URL or PRESENTATION_DATABASE_URL in GitHub secrets."
+            exit 1
+          fi
+          
+          if [[ -z "${S3_BUCKET_NAME}" ]]; then
+            echo "::error::S3_BUCKET_NAME is required. Set S3_BUCKET_NAME or PRESENTATION_S3_BUCKET_NAME in GitHub secrets."
+            exit 1
+          fi
+          
+          if [[ -z "${SLIDESPEAK_API_KEY}" ]]; then
+            echo "::error::SLIDESPEAK_API_KEY is required. Set SLIDESPEAK_API_KEY or PRESENTATION_SLIDESPEAK_API_KEY in GitHub secrets."
+            exit 1
+          fi
+          
+          if [[ -z "${AIML_API_KEY}" ]]; then
+            echo "::error::AIML_API_KEY is required. Set AIML_API_KEY or PRESENTATION_AIML_API_KEY in GitHub secrets."
+            exit 1
+          fi
+          
+          if [[ -z "${AUTH0_DOMAIN}" ]]; then
+            echo "::error::AUTH0_DOMAIN is required. Set AUTH0_DOMAIN or PRESENTATION_AUTH0_DOMAIN in GitHub secrets."
+            exit 1
+          fi
+          
+          if [[ -z "${AUTH0_AUDIENCE}" ]]; then
+            echo "::error::AUTH0_AUDIENCE is required. Set AUTH0_AUDIENCE or PRESENTATION_AUTH0_AUDIENCE in GitHub secrets."
+            exit 1
+          fi
+          
+          echo "Deploying Presentation Agent stack with shared VPC resources..."
+          echo "  VPC: ${VPC_ID}"
+          echo "  Subnet 1: ${SUBNET1_ID}"
+          echo "  Subnet 2: ${SUBNET2_ID}"
+          echo "  Database: ${DATABASE_URL:0:30}..."
+          echo "  S3 Bucket: ${S3_BUCKET_NAME}"
+          echo "  LLM Model: ${LLM_MODEL}"
+          
+          aws cloudformation deploy \
+            --stack-name "${CLOUD_FORMATION_STACK}" \
+            --template-file infra/ecs-presentation-stack.yaml \
+            --capabilities CAPABILITY_NAMED_IAM \
+            --parameter-overrides \
+              AppName="${APP_NAME}" \
+              ContainerImage="${IMAGE_URI}" \
+              ContainerPort=8000 \
+              DesiredCount=1 \
+              HealthCheckPath="/health" \
+              DatabaseUrl="${DATABASE_URL}" \
+              AWSRegion="${AWS_REGION}" \
+              S3BucketName="${S3_BUCKET_NAME}" \
+              S3FolderPrefix="${S3_FOLDER_PREFIX}" \
+              SlideSpeakApiKey="${SLIDESPEAK_API_KEY}" \
+              AIMLApiKey="${AIML_API_KEY}" \
+              LLMModel="${LLM_MODEL}" \
+              WebhookBaseUrl="${WEBHOOK_BASE_URL:-}" \
+              Auth0Domain="${AUTH0_DOMAIN}" \
+              Auth0Audience="${AUTH0_AUDIENCE}" \
+              Auth0Algorithm="${AUTH0_ALGORITHM:-RS256}" \
+              CORSAllowedOrigins="${CORS_ALLOWED_ORIGINS:-}" \
+              SSLCertificateArn="${SSL_CERTIFICATE_ARN:-}" \
+              SharedVPCId="${VPC_ID}" \
+              SharedSubnet1Id="${SUBNET1_ID}" \
+              SharedSubnet2Id="${SUBNET2_ID}" \
+            --no-fail-on-empty-changeset
+
+      - name: Show stack events on failure
+        if: failure()
+        run: |
+          echo "=== CloudFormation Stack Events (last 20) ==="
+          aws cloudformation describe-stack-events \
+            --stack-name "${CLOUD_FORMATION_STACK}" \
+            --max-items 20 \
+            --query "StackEvents[*].[Timestamp,ResourceType,LogicalResourceId,ResourceStatus,ResourceStatusReason]" \
+            --output table || true
+          
+          echo ""
+          echo "=== Stack Status ==="
+          aws cloudformation describe-stacks \
+            --stack-name "${CLOUD_FORMATION_STACK}" \
+            --query "Stacks[0].[StackStatus,StackStatusReason]" \
+            --output table || true
+          
+          echo ""
+          echo "=== Failed Resources ==="
+          aws cloudformation describe-stack-events \
+            --stack-name "${CLOUD_FORMATION_STACK}" \
+            --query "StackEvents[?ResourceStatus=='CREATE_FAILED' || ResourceStatus=='UPDATE_FAILED'].[LogicalResourceId,ResourceStatusReason]" \
+            --output table || true
+
+      - name: Output service URL
+        id: stack-output
+        run: |
+          DNS_NAME=$(aws cloudformation describe-stacks \
+            --stack-name "${CLOUD_FORMATION_STACK}" \
+            --query "Stacks[0].Outputs[?OutputKey=='LoadBalancerDNS'].OutputValue" \
+            --output text)
+          echo "SERVICE_URL=https://${DNS_NAME}" >> "$GITHUB_OUTPUT"
+          echo "Service is available at: https://${DNS_NAME}"
+
+      - name: Print service URL
+        run: |
+          echo "Presentation Agent endpoint URL: ${{ steps.stack-output.outputs.SERVICE_URL }}"

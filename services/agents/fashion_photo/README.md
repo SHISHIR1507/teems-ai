@@ -1,255 +1,238 @@
 # Fashion Photo Agent Service
 
-FastAPI microservice that provides an AI-powered fashion photography assistant using CrewAI and image generation APIs. Guides users through a multi-stage workflow to create AI-generated fashion images.
+CrewAI-based agent service for AI-powered fashion photography. This service provides a chat-based interface to create professional fashion images by combining user avatars with apparel photos, generating shots from multiple angles with AI-guided scene selection.
 
 ## Features
 
+- **Multi-Agent CrewAI System**: Specialized agents for different tasks (Fashion Director, Scene Consultant, Image Generator)
 - **Multi-Stage Workflow**: Avatar selection → Apparel upload → Scene selection → Image generation
-- **AI-Powered Chat**: Conversational interface powered by CrewAI with GPT-4o
-- **Image Generation**: Parallel generation of fashion images from multiple angles (Front, Back, Side, Motion, Close Up)
+- **Multi-Angle Generation**: Generates fashion images from 5 angles (Front, Back, Side, Motion, Close Up) with 4 variations each
 - **Vision Analysis**: GPT-4o Vision for analyzing apparel style and vibes
-- **Session Management**: In-memory session tracking for workflow state
-- **S3 Integration**: Automatic upload and storage of user-uploaded and AI-generated images
+- **S3 Storage**: All uploads and generated files stored in S3
+- **Database Tracking**: Full session and image history with PostgreSQL
+- **Authentication**: Auth0 JWT-based authentication with tenant isolation
 - **LangSmith Integration**: Tracing and feedback collection for LLM operations
 
-## 🏗️ Architecture
-
-The service follows FastAPI best practices with a clean, modular structure:
+## Architecture
 
 ```
-app/
-├── core/                   # Core application components
-│   └── config.py          # Environment configuration & settings
-├── schemas/                # Pydantic request/response models
-│   ├── request.py         # API request schemas
-│   └── response.py        # API response schemas
-├── services/               # Business logic layer
-│   ├── session_service.py # Session state management
-│   ├── s3_service.py      # S3 upload utilities
-│   ├── image_generation.py # Image generation logic & tools
-│   ├── vision_service.py  # Vision analysis service
-│   └── agent_service.py   # CrewAI agent orchestration
-└── routers/                # API endpoint handlers
-    ├── health.py          # Health check endpoint
-    ├── avatar.py          # Avatar selection endpoints
-    ├── upload.py          # File upload endpoints
-    ├── chat.py            # Chat/conversation endpoint
-    └── feedback.py        # Feedback endpoint
+services/agents/fashion_photo/
+├── app/
+│   ├── agents/          # CrewAI agents
+│   │   ├── fashion_director.py
+│   │   ├── scene_consultant.py
+│   │   └── image_generator_agent.py
+│   ├── api/routes/       # FastAPI endpoints
+│   │   ├── chat.py
+│   │   ├── sessions.py
+│   │   ├── avatar.py
+│   │   ├── upload.py
+│   │   ├── images.py
+│   │   ├── scenes.py
+│   │   ├── feedback.py
+│   │   └── health.py
+│   ├── core/             # Config, database, auth, dependencies
+│   │   ├── config.py
+│   │   ├── database.py
+│   │   ├── auth.py
+│   │   ├── dependencies.py
+│   │   └── logging.py
+│   ├── models/           # Pydantic schemas
+│   │   └── schemas.py
+│   ├── orchestrator/     # Multi-agent workflows
+│   │   └── fashion_orchestrator.py
+│   ├── services/         # Business logic (S3, database helpers)
+│   │   ├── db_helpers.py
+│   │   └── s3_service.py
+│   ├── tools/            # CrewAI tools
+│   │   ├── image_tools.py
+│   │   └── vision_tools.py
+│   └── main.py           # FastAPI app
+├── main.py               # Entry point
+├── Dockerfile
+├── README.md
+└── requirements.txt
 ```
 
-## 📋 Prerequisites
-
-- Python 3.11+
-- AWS S3 bucket configured
-- API keys for:
-  - AIML API (for image generation and vision analysis)
-  - LangSmith API (optional, for tracing)
-
-## 🚀 Local Setup
-
-### 1. Install Dependencies
+## Quickstart
 
 ```bash
 cd services/agents/fashion_photo
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
+export PYTHONPATH=app
+uvicorn app.main:app --reload --port 8000
 ```
 
-### 2. Configure Environment Variables
+## Environment Variables
 
-Create a `.env` file in the `fashion_photo` directory:
+### Required
 
-```env
-# LangSmith Configuration
-LANGSMITH_PROJECT=photographer_agent
-LANGSMITH_API_KEY=your_langsmith_api_key
-LANGCHAIN_TRACING_V2=true
+- `DATABASE_URL` - PostgreSQL connection string (asyncpg format)
+- `AIML_API_KEY` - AIML API key for LLM and image generation
+- `AUTH0_DOMAIN` - Auth0 domain
+- `AUTH0_AUDIENCE` - Auth0 API audience
+- `S3_BUCKET_NAME` - AWS S3 bucket name
 
-# AWS Configuration
-AWS_ACCESS_KEY_ID=your_aws_access_key
-AWS_SECRET_ACCESS_KEY=your_aws_secret_key
-AWS_REGION=eu-north-1
-S3_BUCKET_NAME=your_bucket_name
+### Optional
 
-# API Keys
-AIML_API_KEY=your_aiml_api_key
-```
+- `AIML_BASE_URL` - Default: `https://api.aimlapi.com/v1`
+- `LLM_MODEL` - Default: `openai/gpt-4o`
+- `AWS_ACCESS_KEY_ID` - AWS credentials (or use IAM role)
+- `AWS_SECRET_ACCESS_KEY` - AWS credentials
+- `AWS_REGION` - Default: `eu-north-1`
+- `S3_FOLDER_PREFIX` - Default: `Fashion_Photo_Agent`
+- `LANGCHAIN_TRACING_V2` - Default: `true`
+- `LANGSMITH_PROJECT` - Default: `fashion_photo_agent`
+- `LANGSMITH_API_KEY` - LangSmith API key (optional)
+- `PRESET_AVATARS` - Comma-separated list of preset avatar URLs
 
-### 3. Start the Server
+## API Endpoints
+
+### Sessions
+- `POST /v1/sessions` - Create a new session
+- `GET /v1/sessions/{id}` - Get session details
+- `DELETE /v1/sessions/{id}` - Delete session
+- `GET /v1/sessions` - List user's sessions
+
+### Chat
+- `POST /v1/chat` - Main chat endpoint with AI assistant
+
+### Avatars
+- `POST /v1/avatars` - Select or upload avatar
+- `GET /v1/avatars` - List avatars for session
+
+### Upload
+- `POST /v1/upload` - Upload avatar or apparel images
+
+### Images
+- `POST /v1/images/generate` - Generate fashion images
+- `GET /v1/images` - List generated images for session
+
+### Scenes
+- `POST /v1/scenes/suggest` - Get AI-suggested scenes
+
+### Feedback
+- `POST /v1/feedback` - Submit feedback for generated images
+
+### Info
+- `GET /health` - Health check
+
+## Usage Examples
+
+### Create Session
 
 ```bash
-# From the fashion_photo directory
-uvicorn main:app --reload --port 8000
+curl -X POST http://localhost:8000/v1/sessions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -d '{}'
 ```
 
-The service will be available at `http://localhost:8000`
-
-## 🧪 Testing Endpoints
-
-### 1. Health Check
+### Upload Avatar
 
 ```bash
-curl http://localhost:8000/health
+curl -X POST http://localhost:8000/v1/upload \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -F "session_id=YOUR_SESSION_ID" \
+  -F "upload_type=avatar" \
+  -F "files=@avatar.png"
 ```
 
-**Expected Response:**
-```json
-{
-  "status": "online",
-  "service": "Fashion Photo Agent",
-  "version": "1.0.0"
-}
-```
-
-### 2. Select Avatar
+### Upload Apparel
 
 ```bash
-curl -X POST http://localhost:8000/select_avatar \
-  -F "session_id=test-session-123" \
-  -F "avatar_url=https://example.com/avatar.png"
+curl -X POST http://localhost:8000/v1/upload \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -F "session_id=YOUR_SESSION_ID" \
+  -F "upload_type=apparel" \
+  -F "files=@apparel1.jpg" \
+  -F "files=@apparel2.jpg"
 ```
 
-### 3. Upload Images
+### Chat with Agent
 
 ```bash
-curl -X POST http://localhost:8000/upload \
-  -F "session_id=test-session-123" \
-  -F "type=apparel" \
-  -F "files=@/path/to/image1.jpg" \
-  -F "files=@/path/to/image2.jpg"
+curl -X POST http://localhost:8000/v1/chat \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -d '{
+    "session_id": "YOUR_SESSION_ID",
+    "message": "Suggest some scenes for my fashion photos"
+  }'
 ```
 
-### 4. Chat with Agent
+### Generate Images
 
 ```bash
-curl -X POST http://localhost:8000/chat \
-  -F "session_id=test-session-123" \
-  -F "message=Suggest some scenes for my fashion photos"
+curl -X POST http://localhost:8000/v1/images/generate \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -d '{
+    "session_id": "YOUR_SESSION_ID",
+    "scene_description": "Urban street style with natural lighting"
+  }'
 ```
 
-### 5. Submit Feedback
+### Get Scene Suggestions
 
 ```bash
-curl -X POST http://localhost:8000/feedback \
-  -F "session_id=test-session-123" \
-  -F "image_url=https://example.com/generated-image.png" \
-  -F "score=1" \
-  -F "run_id=optional-run-id"
+curl -X POST http://localhost:8000/v1/scenes/suggest \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -d '{
+    "session_id": "YOUR_SESSION_ID"
+  }'
 ```
 
-## 📚 API Endpoints
+## Database Models
 
-### `GET /health`
-Health check endpoint.
+- `FashionSession` - Session metadata and workflow state
+- `Avatar` - Uploaded or selected avatars
+- `Apparel` - Uploaded apparel images with vision analysis
+- `GeneratedImage` - Generated fashion images
+- `Message` - Conversation messages
+- `Task` - Async task tracking
 
-**Response:** Service status and version
+## S3 Storage Structure
 
----
+```
+s3://bucket-name/Fashion_Photo_Agent/
+├── user_uploaded/        # User-uploaded avatars and apparel
+├── ai_generated/         # AI-generated fashion images
+```
 
-### `GET /`
-Serves the home page HTML (if `index.html` exists).
+## Agents
 
----
+1. **Fashion Director** - Main orchestrator agent, guides workflow, coordinates tasks
+2. **Scene Consultant** - Specialized for scene suggestions based on apparel analysis
+3. **Image Generator** - Specialized for executing image generation
 
-### `POST /select_avatar`
-Select a preset avatar for a session.
+## Tools
 
-**Form Parameters:**
-- `session_id` (string, required): Session identifier
-- `avatar_url` (string, required): URL of the selected avatar
+- **Image Generation**: `ImageGenerationTool` - Generates fashion images from multiple angles
+- **Vision Analysis**: `VisionAnalysisTool` - Analyzes apparel style and aesthetic
 
-**Response:** Success status and current workflow stage
+## Workflow Stages
 
----
+1. **AVATAR_SELECTION** - User selects or uploads an avatar
+2. **APPAREL_UPLOAD** - User uploads apparel images
+3. **SCENE_SELECTION** - Agent suggests creative scenes based on apparel
+4. **GENERATION** - AI generates fashion images from multiple angles
 
-### `POST /upload`
-Upload avatar or apparel images.
+## Image Generation
 
-**Form Parameters:**
-- `session_id` (string, required): Session identifier
-- `type` (string, required): Either `'avatar'` or `'apparel'`
-- `files` (file[], required): One or more image files
+- Generates 20 images total: 4 variations × 5 angles
+- Angles: Front View, Back View, Side Profile, In Motion Walking Shot, Close Up
+- Uses `google/nano-banana-pro-edit` model via AIML API
+- Automatically uploads generated images to S3 for permanent storage
+- Maintains identity preservation (facial features, apparel details)
 
-**Response:** Uploaded URLs and updated workflow stage
+## Deployment
 
----
+The service is containerized and can be deployed to ECS or Kubernetes. See infrastructure configuration for deployment details.
 
-### `POST /chat`
-Main conversational endpoint with the AI agent.
+## License
 
-**Form Parameters:**
-- `session_id` (string, required): Session identifier
-- `message` (string, optional): User's chat message
-
-**Response:** Agent's response (may contain generated image URLs)
-
----
-
-### `POST /feedback`
-Submit user feedback (likes/dislikes) for generated images to LangSmith.
-
-**Form Parameters:**
-- `session_id` (string, required): Session identifier
-- `image_url` (string, required): URL of the image being rated
-- `score` (int, required): `1` for Like, `-1` for Dislike
-- `run_id` (string, optional): LangSmith run ID to attach feedback to
-
-**Response:** Feedback recording status
-
-## 🔍 How It Works
-
-1. **Workflow Stages**:
-   - `AVATAR_SELECTION`: User selects or uploads an avatar
-   - `APPAREL_UPLOAD`: User uploads apparel images
-   - `SCENE_SELECTION`: Agent suggests creative scenes based on apparel
-   - `GENERATION`: AI generates fashion images from multiple angles
-
-2. **Image Generation**: 
-   - Uses AIML API with `google/nano-banana-pro-edit` model
-   - Generates 4 images per angle (Front, Back, Side, Motion, Close Up) in parallel
-   - Automatically uploads generated images to S3 for permanent storage
-
-3. **Agent Orchestration**:
-   - CrewAI agent with GPT-4o as the Creative Director
-   - Analyzes apparel using GPT-4o Vision
-   - Suggests scenes and generates prompts for image generation
-
-4. **Session Management**:
-   - In-memory session storage (sessions do not persist across restarts)
-   - Tracks avatars, apparel, generated images, and conversation history
-
-## 🐛 Troubleshooting
-
-### Missing Environment Variables
-
-The service requires:
-- `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` for S3 uploads
-- `S3_BUCKET_NAME` for image storage
-- `AIML_API_KEY` for image generation and vision analysis
-
-### Image Generation Failures
-
-1. Check AIML API key is valid
-2. Verify image URLs are accessible
-3. Check service logs for API error messages
-4. Ensure sufficient credits on AIML API account
-
-### S3 Upload Issues
-
-1. Verify AWS credentials are correct
-2. Check S3 bucket exists and is accessible
-3. Ensure IAM permissions allow PutObject operations
-4. Verify region matches bucket location
-
-## 📝 Development Notes
-
-- Sessions are stored in-memory and will be lost on service restart
-- Generated images are automatically saved to S3 with permanent URLs
-- The service supports parallel image generation for better performance
-- LangSmith tracing is enabled by default when `LANGSMITH_API_KEY` is set
-
-## 🔗 Related Services
-
-- **AIML API**: Image generation and vision analysis
-- **AWS S3**: Image storage
-- **LangSmith**: LLM tracing and feedback collection
-- **CrewAI**: Agent orchestration framework
+Proprietary - Teems AI

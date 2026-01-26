@@ -1,24 +1,30 @@
-# schemas/__init__.py
-from app.schemas.tiktok import (
+# Re-export from models.schemas for backward compatibility
+from app.models.schemas import (
+    ChatRequest,
+    ChatResponse,
+    TokenRequest,
+    TokenResponse,
     PostRequest,
     PostResponse,
     PostHistoryItem,
     PostHistoryResponse,
-    TokenRequest,
-    TokenResponse
+    ConversationResponse,
+    ConversationListResponse,
+    TokenListResponse,
+    OAuthExchangeRequest,
 )
-from app.schemas.chat import ChatRequest, ChatResponse
-from app.schemas.oauth import OAuthCodeExchange, OAuthTokenResponse
 
 __all__ = [
+    "ChatRequest",
+    "ChatResponse",
+    "TokenRequest",
+    "TokenResponse",
     "PostRequest",
     "PostResponse",
     "PostHistoryItem",
     "PostHistoryResponse",
-    "TokenRequest",
-    "TokenResponse",
-    "ChatRequest",
-    "ChatResponse",
-    "OAuthCodeExchange",
-    "OAuthTokenResponse"
+    "ConversationResponse",
+    "ConversationListResponse",
+    "TokenListResponse",
+    "OAuthExchangeRequest",
 ]

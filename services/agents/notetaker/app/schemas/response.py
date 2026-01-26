@@ -1,0 +1,53 @@
+"""
+Response schemas for Notetaker API
+"""
+from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any
+
+
+class CallResponse(BaseModel):
+    """Call/meeting response schema"""
+    id: str
+    tenant_id: str
+    user_id: Optional[str] = None
+    meeting_id: Optional[str] = None
+    title: str
+    meeting_link: str
+    start_time: str
+    transcript: Optional[str] = None
+    summary: Optional[str] = None
+    action_items: Optional[Dict[str, Any]] = None
+    status: str
+    created_at: str
+    updated_at: str
+
+
+class ScheduleMeetingResponse(BaseModel):
+    """Response schema for meeting scheduling"""
+    success: bool
+    message: str
+    call_id: str
+    call: CallResponse
+    nylas_meeting_id: Optional[str] = None
+
+
+class ChatResponse(BaseModel):
+    """Response schema for chat endpoint"""
+    answer: str = Field(..., description="AI-generated answer")
+    meeting_title: str
+    chunks_used: int = Field(..., description="Number of context chunks used")
+    query: str
+
+
+class CallListResponse(BaseModel):
+    """Response schema for call list"""
+    calls: List[CallResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class WebhookResponse(BaseModel):
+    """Response schema for webhook endpoints"""
+    status: str = "OK"
+    message: Optional[str] = None

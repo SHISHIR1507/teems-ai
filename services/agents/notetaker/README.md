@@ -1,4 +1,4 @@
-# Notetaker Service
+# Notetaker Agent Service
 
 FastAPI microservice that integrates with Nylas to schedule meetings, capture transcripts, summaries, and action items, and provides RAG-powered chat functionality for querying meeting content.
 
@@ -10,29 +10,44 @@ FastAPI microservice that integrates with Nylas to schedule meetings, capture tr
 - **RAG-Powered Chat**: Query meeting content using vector similarity search and LLM generation
 - **Automatic Chunking**: Splits transcripts into chunks for efficient vector search
 - **Embeddings**: Creates vector embeddings for semantic search using AIML API
+- **Multi-Tenant Support**: Full tenant isolation with Auth0 authentication
+- **Comprehensive API**: RESTful API with versioning (`/v1/`)
 
 ## 🏗️ Architecture
 
 The service follows FastAPI best practices with a clean, modular structure:
 
 ```
-app/
-├── core/                   # Core application components
-│   ├── config.py          # Environment configuration & settings
-│   └── database.py        # Database setup & session management
-├── models/                 # SQLAlchemy database models
-│   └── call.py            # Call & CallChunk models
-├── schemas/                # Pydantic request/response models
-│   └── request.py         # API request schemas
-├── services/               # Business logic layer
-│   ├── chunker.py         # Text chunking utility
-│   ├── embeddings.py      # AIML embeddings service
-│   ├── llm.py             # AIML LLM service
-│   └── rag_service.py     # RAG processing service
-└── routers/                # API endpoint handlers
-    ├── meetings.py         # Meeting scheduling & chat endpoints
-    ├── webhooks.py        # Nylas webhook handlers
-    └── health.py          # Health check endpoint
+services/agents/notetaker/
+├── app/
+│   ├── api/
+│   │   └── routes/          # API endpoint handlers
+│   │       ├── calls.py     # Call management endpoints
+│   │       ├── meetings.py  # Meeting scheduling & chat
+│   │       ├── webhooks.py  # Nylas webhook handlers
+│   │       └── health.py    # Health check
+│   ├── core/                 # Core application components
+│   │   ├── auth.py          # Auth0 JWT verification
+│   │   ├── config.py        # Environment configuration
+│   │   ├── database.py      # Database setup & session management
+│   │   └── dependencies.py  # FastAPI dependencies
+│   ├── models/               # SQLAlchemy database models
+│   │   └── call.py          # Call & CallChunk models
+│   ├── schemas/              # Pydantic request/response models
+│   │   ├── request.py       # API request schemas
+│   │   └── response.py      # API response schemas
+│   ├── services/             # Business logic layer
+│   │   ├── chunker.py       # Text chunking utility
+│   │   ├── embeddings.py    # AIML embeddings service
+│   │   ├── llm.py           # AIML LLM service
+│   │   ├── nylas_service.py # Nylas API abstraction
+│   │   ├── rag_service.py   # RAG processing service
+│   │   └── db_helpers.py    # Database helper functions
+│   └── main.py              # FastAPI application
+├── main.py                   # Entry point
+├── Dockerfile
+├── README.md
+└── requirements.txt
 ```
 
 ## 📋 Prerequisites
@@ -42,6 +57,7 @@ app/
 - API keys for:
   - Nylas API (for meeting transcription)
   - AIML API (for embeddings and LLM)
+  - Auth0 (for authentication)
 
 ## 🚀 Local Setup
 
@@ -49,6 +65,8 @@ app/
 
 ```bash
 cd services/agents/notetaker
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
@@ -71,18 +89,23 @@ CREATE EXTENSION IF NOT EXISTS vector;
 Create a `.env` file in the `notetaker` directory:
 
 ```env
-# Database
-DATABASE_URL=postgresql://user:password@localhost:5432/notetaker_db
+# Database (Required)
+DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/notetaker_db
 
-# Nylas API
+# Nylas API (Required)
 NYLAS_API_KEY=your_nylas_api_key
 NYLAS_BASE_URL=https://api.us.nylas.com
 
-# AIML API (for embeddings and LLM)
+# AIML API (Required for embeddings and LLM)
 AIML_API_KEY=your_aiml_api_key
 AIML_BASE_URL=https://api.aimlapi.com/v1
 EMBEDDING_MODEL=text-embedding-3-small
 LLM_MODEL=gpt-4o
+
+# Auth0 (Required)
+AUTH0_DOMAIN=your-tenant.auth0.com
+AUTH0_AUDIENCE=https://api.teems.ai
+AUTH0_ALGORITHM=RS256
 ```
 
 **Note**: If `AIML_API_KEY` is not set, the service will use dummy embeddings/LLM responses for testing.
@@ -97,13 +120,14 @@ The database tables will be created automatically when you start the service. Th
 
 ```bash
 # From the notetaker directory
-uvicorn main:app --reload --port 8000
+export PYTHONPATH=app
+uvicorn app.main:app --reload --port 8000
 ```
 
 Or using Python directly:
 
 ```bash
-python -m uvicorn main:app --reload --port 8000
+python -m uvicorn app.main:app --reload --port 8000
 ```
 
 The service will be available at `http://localhost:8000`
@@ -126,11 +150,13 @@ curl http://localhost:8000/health
 ### 2. Schedule a Meeting
 
 ```bash
-curl -X POST http://localhost:8000/schedule-notetaker \
+curl -X POST http://localhost:8000/v1/meetings/schedule \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_AUTH0_TOKEN" \
   -d '{
     "meeting_link": "https://zoom.us/j/123456789",
-    "start_time": "2024-12-25T14:30:00Z"
+    "start_time": "2024-12-25T14:30:00Z",
+    "title": "Team Standup"
   }'
 ```
 
@@ -140,26 +166,42 @@ curl -X POST http://localhost:8000/schedule-notetaker \
   "success": true,
   "message": "Meeting scheduled and saved",
   "call_id": "uuid-here",
-  "meeting_saved": {
+  "call": {
     "id": "uuid-here",
-    "title": "Teems.ai",
+    "title": "Team Standup",
     "meeting_link": "https://zoom.us/j/123456789",
     "start_time": "2024-12-25T14:30:00Z",
-    "created_at": "2024-12-20T10:00:00Z"
+    "status": "scheduled",
+    ...
   },
-  "nylas_response": {...}
+  "nylas_meeting_id": "nylas-id-here"
 }
 ```
 
 **Note**: The `start_time` must be in the future and in ISO format (e.g., `2024-12-25T14:30:00Z`).
 
-### 3. Chat About a Meeting
+### 3. List Calls
+
+```bash
+curl -X GET "http://localhost:8000/v1/calls?limit=10&offset=0" \
+  -H "Authorization: Bearer YOUR_AUTH0_TOKEN"
+```
+
+### 4. Get Call Details
+
+```bash
+curl -X GET http://localhost:8000/v1/calls/{call_id} \
+  -H "Authorization: Bearer YOUR_AUTH0_TOKEN"
+```
+
+### 5. Chat About a Meeting
 
 After a meeting has been processed (transcript available), you can query it:
 
 ```bash
-curl -X POST http://localhost:8000/meetings/{call_id}/chat \
+curl -X POST http://localhost:8000/v1/meetings/{call_id}/chat \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_AUTH0_TOKEN" \
   -d '{
     "query": "What were the main action items?"
   }'
@@ -169,13 +211,41 @@ curl -X POST http://localhost:8000/meetings/{call_id}/chat \
 ```json
 {
   "answer": "Based on the meeting context...",
-  "meeting_title": "Teems.ai",
+  "meeting_title": "Team Standup",
   "chunks_used": 3,
   "query": "What were the main action items?"
 }
 ```
 
-### 4. Webhook Endpoint (for Nylas)
+### 6. Get Transcript
+
+```bash
+curl -X GET http://localhost:8000/v1/calls/{call_id}/transcript \
+  -H "Authorization: Bearer YOUR_AUTH0_TOKEN"
+```
+
+### 7. Get Summary
+
+```bash
+curl -X GET http://localhost:8000/v1/calls/{call_id}/summary \
+  -H "Authorization: Bearer YOUR_AUTH0_TOKEN"
+```
+
+### 8. Get Action Items
+
+```bash
+curl -X GET http://localhost:8000/v1/calls/{call_id}/action-items \
+  -H "Authorization: Bearer YOUR_AUTH0_TOKEN"
+```
+
+### 9. Delete Call
+
+```bash
+curl -X DELETE http://localhost:8000/v1/calls/{call_id} \
+  -H "Authorization: Bearer YOUR_AUTH0_TOKEN"
+```
+
+### 10. Webhook Endpoint (for Nylas)
 
 The webhook endpoint is used by Nylas to send meeting events. For local testing, you can use a tool like [ngrok](https://ngrok.com/) to expose your local server:
 
@@ -188,12 +258,12 @@ brew install ngrok  # macOS
 ngrok http 8000
 
 # Use the ngrok URL in Nylas webhook configuration:
-# https://your-ngrok-url.ngrok.io/webhooks/nylas
+# https://your-ngrok-url.ngrok.io/v1/webhooks/nylas
 ```
 
 **Webhook Verification (GET):**
 ```bash
-curl "http://localhost:8000/webhooks/nylas?challenge=test123"
+curl "http://localhost:8000/v1/webhooks/nylas?challenge=test123"
 ```
 
 **Webhook Event (POST):**
@@ -201,22 +271,33 @@ Nylas will POST events to this endpoint automatically when meeting media is read
 
 ## 📚 API Endpoints
 
-### `POST /schedule-notetaker`
+### Authentication
+
+All endpoints (except `/health` and `/v1/webhooks/nylas`) require authentication via Auth0 JWT token in the `Authorization` header:
+
+```
+Authorization: Bearer YOUR_AUTH0_TOKEN
+```
+
+### Meetings
+
+#### `POST /v1/meetings/schedule`
 Schedule a meeting with Nylas for transcription.
 
 **Request Body:**
 ```json
 {
   "meeting_link": "string (required)",
-  "start_time": "string (required, ISO format)"
+  "start_time": "string (required, ISO format)",
+  "title": "string (required)"
 }
 ```
 
-**Response:** Meeting details with call_id
+**Response:** `ScheduleMeetingResponse` with call details
 
 ---
 
-### `POST /meetings/{call_id}/chat`
+#### `POST /v1/meetings/{call_id}/chat`
 Query a meeting using RAG-powered chat.
 
 **Path Parameters:**
@@ -229,7 +310,7 @@ Query a meeting using RAG-powered chat.
 }
 ```
 
-**Response:** LLM-generated answer with context
+**Response:** `ChatResponse` with AI-generated answer
 
 **Error Responses:**
 - `404`: Meeting not found
@@ -237,14 +318,73 @@ Query a meeting using RAG-powered chat.
 
 ---
 
-### `GET /health`
-Health check endpoint.
+### Calls
 
-**Response:** Service status
+#### `GET /v1/calls`
+List calls for the authenticated tenant.
+
+**Query Parameters:**
+- `limit` (int, default=50): Number of results per page (1-100)
+- `offset` (int, default=0): Pagination offset
+- `status` (string, optional): Filter by status (scheduled, processing, completed, failed)
+
+**Response:** `CallListResponse` with paginated calls
 
 ---
 
-### `GET /webhooks/nylas`
+#### `GET /v1/calls/{call_id}`
+Get call details by ID.
+
+**Response:** `CallResponse` with full call details
+
+**Error Responses:**
+- `404`: Call not found
+
+---
+
+#### `DELETE /v1/calls/{call_id}`
+Delete a call.
+
+**Response:** Success message
+
+**Error Responses:**
+- `404`: Call not found
+
+---
+
+#### `GET /v1/calls/{call_id}/transcript`
+Get raw transcript for a call.
+
+**Response:** Transcript text
+
+**Error Responses:**
+- `404`: Call not found or transcript not available
+
+---
+
+#### `GET /v1/calls/{call_id}/summary`
+Get summary for a call.
+
+**Response:** Summary text
+
+**Error Responses:**
+- `404`: Call not found or summary not available
+
+---
+
+#### `GET /v1/calls/{call_id}/action-items`
+Get action items for a call.
+
+**Response:** Action items JSON
+
+**Error Responses:**
+- `404`: Call not found or action items not available
+
+---
+
+### Webhooks
+
+#### `GET /v1/webhooks/nylas`
 Webhook verification endpoint (for Nylas).
 
 **Query Parameters:**
@@ -254,12 +394,23 @@ Webhook verification endpoint (for Nylas).
 
 ---
 
-### `POST /webhooks/nylas`
+#### `POST /v1/webhooks/nylas`
 Webhook event handler (for Nylas).
 
 **Request Body:** Nylas webhook payload
 
 **Response:** `OK` (text/plain)
+
+---
+
+### Health
+
+#### `GET /health`
+Health check endpoint.
+
+**Response:** Service status
+
+---
 
 ## 🔍 How It Works
 
@@ -290,6 +441,13 @@ The service will print warnings if required environment variables are missing:
 - `DATABASE_URL` - Required, will raise error if missing
 - `NYLAS_API_KEY` - Required for scheduling meetings
 - `AIML_API_KEY` - Optional, will use dummy responses if missing
+- `AUTH0_DOMAIN`, `AUTH0_AUDIENCE` - Required for authentication
+
+### Authentication Issues
+
+- Verify Auth0 token is valid and not expired
+- Check that token includes `tenant_id` claim
+- Ensure `AUTH0_DOMAIN` and `AUTH0_AUDIENCE` are correctly configured
 
 ### Webhook Not Receiving Events
 
@@ -311,6 +469,7 @@ The service will print warnings if required environment variables are missing:
 - Transcripts are chunked into ~500 word chunks for RAG
 - Vector embeddings use 1536 dimensions (OpenAI text-embedding-3-small)
 - Top 5 most relevant chunks are used for context in chat responses
+- All operations are tenant-isolated for security
 - Webhook events are stored in memory (last 50 events) for debugging
 
 ## 🔗 Related Services
@@ -318,3 +477,19 @@ The service will print warnings if required environment variables are missing:
 - **Nylas API**: Meeting transcription and recording
 - **AIML API**: Embeddings and LLM generation
 - **PostgreSQL + pgvector**: Vector database for semantic search
+- **Auth0**: Authentication and authorization
+
+## 🚀 Deployment
+
+The service is containerized and can be deployed to ECS or Kubernetes. See infrastructure configuration for deployment details.
+
+### Docker Build
+
+```bash
+docker build -t notetaker-service .
+docker run -p 8000:8000 --env-file .env notetaker-service
+```
+
+## 📄 License
+
+Proprietary - Teems AI
