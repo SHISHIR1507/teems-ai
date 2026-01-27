@@ -20,7 +20,7 @@ except ImportError:
     def raise_standard_error(status_code, message, detail=None, field=None):
         raise HTTPException(status_code=status_code, detail=message)
 
-from ..schemas.chat import ChatRequest, ActionClickedRequest, ResetRequest
+from ..schemas.chat import ChatRequest, ChatResponse, ActionClickedRequest, ResetRequest
 from ..schemas.document import DocumentResponse, DocumentUploadResponse
 from ..dependencies import get_llm_host, get_all_tools, get_user_sessions, initialize_mcp_clients
 from ..core.dependencies import get_db_session
@@ -50,7 +50,6 @@ from ..services.realtime_notifier import (
     notify_tool_execution
 )
 from ..services.conversation_summarizer import summarize_conversation
-from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -134,13 +133,13 @@ async def index():
     }
 
 
-@router.post("/api/chat")
+@router.post("/api/chat", response_model=ChatResponse)
 async def chat(
     chat_request: ChatRequest,
     request: FastAPIRequest,
     user: AuthenticatedUser = Depends(require_tenant()),
-):
-    """Chat endpoint with SSE streaming and realtime notifications"""
+) -> ChatResponse:
+    """Chat endpoint with REST response and realtime notifications via Redis"""
     user_message = chat_request.message.strip()
     session_id = chat_request.session_id
     
@@ -164,7 +163,7 @@ async def chat(
     init_engine()
     assert async_session_maker is not None
     
-    # Get or create conversation in database (outside the generator)
+    # Get or create conversation in database
     async with async_session_maker() as db:
         conversation = await get_or_create_conversation(
             db, user.tenant_id, session_id, user.sub
@@ -185,173 +184,184 @@ async def chat(
     # Notify chat started
     await notify_chat_started(user.tenant_id, session_id, user_message)
     
-    async def generate():
-        try:
-            # Send initial status with conversation and session metadata
-            yield f"data: {json.dumps({'type': 'status', 'content': 'Thinking...', 'conversation_id': str(conversation_id), 'session_id': session_id})}\n\n"
+    try:
+        # Notify initial progress
+        await notify_chat_progress(
+            user.tenant_id,
+            session_id,
+            {"step": "thinking", "progress": 10},
+            "Thinking..."
+        )
+        
+        # Track tools used in this conversation
+        tools_used_in_turn = []
+        
+        # Call LLM
+        response = llm_host.call_llm(user_message, tools=all_tools)
+        result = llm_host.handle_response(response)
+        
+        # Handle tool calls
+        max_iterations = 5
+        iteration = 0
+        
+        while result["type"] == "tool_calls" and iteration < max_iterations:
+            status_msg = f'Using tools... ({iteration + 1})'
             await notify_chat_progress(
                 user.tenant_id,
                 session_id,
-                {"step": "thinking", "progress": 10},
-                "Thinking..."
+                {"step": "tool_execution", "iteration": iteration + 1, "progress": 30 + (iteration * 10)},
+                status_msg
+            )
+            iteration += 1
+            
+            # Track which tools were called
+            for tool_call in result["tool_calls"]:
+                tool_name = tool_call["function"]["name"]
+                tools_used_in_turn.append(tool_name)
+                await notify_tool_execution(
+                    user.tenant_id,
+                    session_id,
+                    tool_name,
+                    "started",
+                    {"iteration": iteration}
+                )
+            
+            # Execute tools with tenant context from authenticated user
+            llm_host.execute_tool_calls(result["tool_calls"], tenant_id=user.tenant_id)
+            
+            # Notify tool completion
+            for tool_name in tools_used_in_turn[-len(result["tool_calls"]):]:
+                await notify_tool_execution(
+                    user.tenant_id,
+                    session_id,
+                    tool_name,
+                    "completed",
+                    {"iteration": iteration}
+                )
+            
+            # Get next response
+            response = llm_host.call_llm("", tools=all_tools)
+            result = llm_host.handle_response(response)
+        
+        # Update session with tools used
+        user_sessions[internal_session_id]['tools_used'].extend(tools_used_in_turn)
+        
+        # Process final response
+        if result["type"] == "text":
+            eve_reply = result['content']
+            
+            # Store messages in database
+            async with async_session_maker() as db:
+                await create_message(
+                    db, conversation_id, user.tenant_id, "user", user_message, None, None
+                )
+                await create_message(
+                    db, conversation_id, user.tenant_id, "assistant", eve_reply, 
+                    {"tools_used": tools_used_in_turn} if tools_used_in_turn else None, 
+                    None
+                )
+                await db.commit()
+                
+                # Retrieve recent messages for recommendations (last 10)
+                recent_messages = await get_conversation_messages(
+                    db, conversation_id, user.tenant_id, limit=10
+                )
+            
+            # Format messages for recommendation context
+            conversation_history = [
+                {"role": msg.role, "content": msg.content}
+                for msg in recent_messages
+            ]
+            
+            # Generate recommendations based on context
+            combined_context = f"{user_message} {eve_reply}"
+            recent_actions = user_sessions[internal_session_id]['recent_actions']
+            tools_used = user_sessions[internal_session_id]['tools_used']
+            
+            logger.info(f"\n🔍 Generating recommendations...")
+            logger.info(f"   Domain detected from tools: {tools_used[-3:] if tools_used else 'none'}")
+            logger.info(f"   Recent actions: {recent_actions[-3:] if recent_actions else 'none'}")
+            
+            # Use combined recommendations (actions + agents)
+            recommendations = await recommend_actions_and_agents(
+                query=combined_context,
+                tenant_id=user.tenant_id,
+                user_id=user.sub,
+                auth_token=auth_token,
+                recent_actions=recent_actions,
+                tools_used=tools_used,
+                k_actions=3,
+                k_agents=2
+            )
+            logger.info(f"✓ Got {len(recommendations)} recommendations")
+            
+            # Convert recommendations to dict format with all fields
+            rec_list = []
+            for rec in recommendations:
+                rec_dict = {
+                    'action': rec.action,
+                    'score': rec.score,
+                    'id': rec.id,
+                    'type': rec.type,
+                    'click_action': rec.click_action or ("chat_followup" if rec.type == "action" else "navigate")
+                }
+                # Add agent-specific fields if present
+                if rec.type == "agent":
+                    if rec.agent_id:
+                        rec_dict['agent_id'] = rec.agent_id
+                    if rec.agent_manager_id:
+                        rec_dict['agent_manager_id'] = rec.agent_manager_id
+                    if rec.agent_name:
+                        rec_dict['agent_name'] = rec.agent_name
+                    if rec.is_assigned is not None:
+                        rec_dict['is_assigned'] = rec.is_assigned
+                    if rec.ui_route:
+                        rec_dict['ui_route'] = rec.ui_route
+                rec_list.append(rec_dict)
+            
+            logger.info(f"📤 Sending recommendations: {[r['action'] for r in rec_list]}")
+            
+            # Notify chat completed
+            await notify_chat_completed(
+                user.tenant_id,
+                session_id,
+                {
+                    "response": eve_reply,
+                    "recommendations": rec_list,
+                    "tools_used": tools_used_in_turn
+                }
             )
             
-            # Track tools used in this conversation
-            tools_used_in_turn = []
+            # Return ChatResponse
+            return ChatResponse(
+                message=eve_reply,
+                conversation_id=str(conversation_id),
+                session_id=session_id,
+                recommendations=rec_list,
+                tools_used=tools_used_in_turn
+            )
+        else:
+            error_msg = 'Max iterations reached'
+            await notify_chat_error(user.tenant_id, session_id, error_msg)
+            raise_standard_error(
+                status_code=500,
+                message="Max iterations reached",
+                detail="Tool execution exceeded maximum iterations"
+            )
             
-            # Call LLM
-            response = llm_host.call_llm(user_message, tools=all_tools)
-            result = llm_host.handle_response(response)
-            
-            # Handle tool calls
-            max_iterations = 5
-            iteration = 0
-            
-            while result["type"] == "tool_calls" and iteration < max_iterations:
-                status_msg = f'Using tools... ({iteration + 1})'
-                yield f"data: {json.dumps({'type': 'status', 'content': status_msg, 'conversation_id': str(conversation_id), 'session_id': session_id})}\n\n"
-                await notify_chat_progress(
-                    user.tenant_id,
-                    session_id,
-                    {"step": "tool_execution", "iteration": iteration + 1, "progress": 30 + (iteration * 10)},
-                    status_msg
-                )
-                iteration += 1
-                
-                # Track which tools were called
-                for tool_call in result["tool_calls"]:
-                    tool_name = tool_call["function"]["name"]
-                    tools_used_in_turn.append(tool_name)
-                    await notify_tool_execution(
-                        user.tenant_id,
-                        session_id,
-                        tool_name,
-                        "started",
-                        {"iteration": iteration}
-                    )
-                
-                # Execute tools with tenant context from authenticated user
-                llm_host.execute_tool_calls(result["tool_calls"], tenant_id=user.tenant_id)
-                
-                # Notify tool completion
-                for tool_name in tools_used_in_turn[-len(result["tool_calls"]):]:
-                    await notify_tool_execution(
-                        user.tenant_id,
-                        session_id,
-                        tool_name,
-                        "completed",
-                        {"iteration": iteration}
-                    )
-                
-                # Get next response
-                response = llm_host.call_llm("", tools=all_tools)
-                result = llm_host.handle_response(response)
-            
-            # Update session with tools used
-            user_sessions[internal_session_id]['tools_used'].extend(tools_used_in_turn)
-            
-            # Send final response with recommendations
-            if result["type"] == "text":
-                eve_reply = result['content']
-                
-                # Store messages in database
-                async with async_session_maker() as db:
-                    await create_message(
-                        db, conversation_id, user.tenant_id, "user", user_message, None, None
-                    )
-                    await create_message(
-                        db, conversation_id, user.tenant_id, "assistant", eve_reply, 
-                        {"tools_used": tools_used_in_turn} if tools_used_in_turn else None, 
-                        None
-                    )
-                    await db.commit()
-                    
-                    # Retrieve recent messages for recommendations (last 10)
-                    recent_messages = await get_conversation_messages(
-                        db, conversation_id, user.tenant_id, limit=10
-                    )
-                
-                # Format messages for recommendation context
-                conversation_history = [
-                    {"role": msg.role, "content": msg.content}
-                    for msg in recent_messages
-                ]
-                
-                # Generate recommendations based on context
-                combined_context = f"{user_message} {eve_reply}"
-                recent_actions = user_sessions[internal_session_id]['recent_actions']
-                tools_used = user_sessions[internal_session_id]['tools_used']
-                
-                logger.info(f"\n🔍 Generating recommendations...")
-                logger.info(f"   Domain detected from tools: {tools_used[-3:] if tools_used else 'none'}")
-                logger.info(f"   Recent actions: {recent_actions[-3:] if recent_actions else 'none'}")
-                
-                # Use combined recommendations (actions + agents)
-                recommendations = await recommend_actions_and_agents(
-                    query=combined_context,
-                    tenant_id=user.tenant_id,
-                    user_id=user.sub,
-                    auth_token=auth_token,
-                    recent_actions=recent_actions,
-                    tools_used=tools_used,
-                    k_actions=3,
-                    k_agents=2
-                )
-                logger.info(f"✓ Got {len(recommendations)} recommendations")
-                
-                # Convert recommendations to dict format with all fields
-                rec_list = []
-                for rec in recommendations:
-                    rec_dict = {
-                        'action': rec.action,
-                        'score': rec.score,
-                        'id': rec.id,
-                        'type': rec.type,
-                        'click_action': rec.click_action or ("chat_followup" if rec.type == "action" else "navigate")
-                    }
-                    # Add agent-specific fields if present
-                    if rec.type == "agent":
-                        if rec.agent_id:
-                            rec_dict['agent_id'] = rec.agent_id
-                        if rec.agent_manager_id:
-                            rec_dict['agent_manager_id'] = rec.agent_manager_id
-                        if rec.agent_name:
-                            rec_dict['agent_name'] = rec.agent_name
-                        if rec.is_assigned is not None:
-                            rec_dict['is_assigned'] = rec.is_assigned
-                        if rec.ui_route:
-                            rec_dict['ui_route'] = rec.ui_route
-                    rec_list.append(rec_dict)
-                
-                logger.info(f"📤 Sending recommendations: {[r['action'] for r in rec_list]}")
-                
-                # Send message with recommendations and conversation metadata
-                yield f"data: {json.dumps({'type': 'message', 'content': eve_reply, 'recommendations': rec_list, 'conversation_id': str(conversation_id), 'session_id': session_id})}\n\n"
-                
-                # Notify chat completed
-                await notify_chat_completed(
-                    user.tenant_id,
-                    session_id,
-                    {
-                        "response": eve_reply,
-                        "recommendations": rec_list,
-                        "tools_used": tools_used_in_turn
-                    }
-                )
-            else:
-                error_msg = 'Max iterations reached'
-                yield f"data: {json.dumps({'type': 'error', 'content': error_msg, 'conversation_id': str(conversation_id), 'session_id': session_id})}\n\n"
-                await notify_chat_error(user.tenant_id, session_id, error_msg)
-                
-        except Exception as e:
-            logger.error(f"❌ Error in chat: {e}")
-            import traceback
-            traceback.print_exc()
-            error_msg = str(e)
-            yield f"data: {json.dumps({'type': 'error', 'content': error_msg, 'conversation_id': str(conversation_id), 'session_id': session_id})}\n\n"
-            await notify_chat_error(user.tenant_id, session_id, error_msg, {"traceback": traceback.format_exc()})
-    
-    return StreamingResponse(generate(), media_type="text/event-stream")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"❌ Error in chat: {e}")
+        import traceback
+        traceback.print_exc()
+        error_msg = str(e)
+        await notify_chat_error(user.tenant_id, session_id, error_msg, {"traceback": traceback.format_exc()})
+        raise_standard_error(
+            status_code=500,
+            message="Internal server error",
+            detail=str(e)
+        )
 
 
 @router.post("/api/action_clicked")
