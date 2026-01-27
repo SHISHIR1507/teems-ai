@@ -70,7 +70,7 @@ async def chat(
 
         fashion_session = await get_or_create_session(db, session_id, tenant_id, user.sub)
 
-            if not request.message:
+        if not request.message:
             settings = get_settings()
             welcome = (
                 "Let's create some fashion photos. First, upload your apparel images "
