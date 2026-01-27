@@ -86,19 +86,22 @@ async def migrate():
                 )
             """, mcp_user)
             
+            # Escape password for SQL (double single quotes)
+            escaped_password = mcp_password.replace("'", "''")
+            
             if role_exists:
                 print(f"✓ Role '{mcp_user}' already exists")
                 # Update password if role exists
                 await conn.execute(f"""
-                    ALTER ROLE {mcp_user} WITH PASSWORD $1
-                """, mcp_password)
+                    ALTER ROLE {mcp_user} WITH PASSWORD '{escaped_password}'
+                """)
                 print(f"✓ Password updated for role '{mcp_user}'")
             else:
                 # Create role
                 print(f"\nCreating role '{mcp_user}'...")
                 await conn.execute(f"""
-                    CREATE ROLE {mcp_user} WITH LOGIN PASSWORD $1
-                """, mcp_password)
+                    CREATE ROLE {mcp_user} WITH LOGIN PASSWORD '{escaped_password}'
+                """)
                 print(f"✅ Role '{mcp_user}' created")
             
             # Revoke all permissions on public schema first
@@ -113,8 +116,9 @@ async def migrate():
             print("✅ Granted USAGE on public schema")
             
             # Revoke access to system schemas
+            # Note: pg_toast removed - we don't have permission and it aborts the transaction
             print("\nRevoking access to system schemas...")
-            system_schemas = ["pg_catalog", "information_schema", "pg_toast"]
+            system_schemas = ["pg_catalog", "information_schema"]
             for schema in system_schemas:
                 try:
                     await conn.execute(f"REVOKE ALL ON SCHEMA {schema} FROM {mcp_user}")

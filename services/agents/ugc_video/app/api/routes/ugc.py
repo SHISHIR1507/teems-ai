@@ -81,57 +81,56 @@ async def chat_ugc_upload_endpoint(
         
         # Add user message to database
         await db_helpers.add_message(session, conversation_id, tenant_id, "user", message)
-    
-    person_image_s3_url = None
-    product_image_s3_url = None
-    
-    # Upload person image to S3 if provided (public-read for AI/ML API access)
-    if person_image:
-        # Notify progress if we're uploading images
-        await notify_job_progress(
-            tenant_id,
-            conversation_id,
-            "ugc_image_generation",
-            {"step": "uploading_images", "progress": 5},
-            "Uploading images to S3..."
-        )
-        content = await person_image.read()
-        s3_key = get_s3_key_for_upload(conversation_id, person_image.filename, "person")
-        person_image_s3_url = upload_bytes_to_s3(
-            content, 
-            s3_key, 
-            person_image.content_type or "image/jpeg",
-            public_read=True  # Make public for AI/ML API to access
-        )
         
-        # Save to database
-        await db_helpers.add_asset(
-            session, conversation_id, tenant_id, user_id, "uploaded_person", person_image_s3_url,
-            person_image.filename, {"size": len(content)}
-        )
-        print(f"✅ Person image uploaded to S3: {person_image_s3_url}")
-    
-    # Upload product image to S3 if provided (public-read for AI/ML API access)
-    if product_image:
-        content = await product_image.read()
-        s3_key = get_s3_key_for_upload(conversation_id, product_image.filename, "product")
-        product_image_s3_url = upload_bytes_to_s3(
-            content, 
-            s3_key, 
-            product_image.content_type or "image/jpeg",
-            public_read=True  # Make public for AI/ML API to access
-        )
+        person_image_s3_url = None
+        product_image_s3_url = None
         
-        # Save to database
-        await db_helpers.add_asset(
-            session, conversation_id, tenant_id, user_id, "uploaded_product", product_image_s3_url,
-            product_image.filename, {"size": len(content)}
-        )
-        print(f"✅ Product image uploaded to S3: {product_image_s3_url}")
-    
-    run_tree = langsmith.get_current_run_tree()
-    
-    try:
+        # Upload person image to S3 if provided (public-read for AI/ML API access)
+        if person_image:
+            # Notify progress if we're uploading images
+            await notify_job_progress(
+                tenant_id,
+                conversation_id,
+                "ugc_image_generation",
+                {"step": "uploading_images", "progress": 5},
+                "Uploading images to S3..."
+            )
+            content = await person_image.read()
+            s3_key = get_s3_key_for_upload(conversation_id, person_image.filename, "person")
+            person_image_s3_url = upload_bytes_to_s3(
+                content, 
+                s3_key, 
+                person_image.content_type or "image/jpeg",
+                public_read=True  # Make public for AI/ML API to access
+            )
+            
+            # Save to database
+            await db_helpers.add_asset(
+                session, conversation_id, tenant_id, user_id, "uploaded_person", person_image_s3_url,
+                person_image.filename, {"size": len(content)}
+            )
+            print(f"✅ Person image uploaded to S3: {person_image_s3_url}")
+        
+        # Upload product image to S3 if provided (public-read for AI/ML API access)
+        if product_image:
+            content = await product_image.read()
+            s3_key = get_s3_key_for_upload(conversation_id, product_image.filename, "product")
+            product_image_s3_url = upload_bytes_to_s3(
+                content, 
+                s3_key, 
+                product_image.content_type or "image/jpeg",
+                public_read=True  # Make public for AI/ML API to access
+            )
+            
+            # Save to database
+            await db_helpers.add_asset(
+                session, conversation_id, tenant_id, user_id, "uploaded_product", product_image_s3_url,
+                product_image.filename, {"size": len(content)}
+            )
+            print(f"✅ Product image uploaded to S3: {product_image_s3_url}")
+        
+        run_tree = langsmith.get_current_run_tree()
+        
         # Get brand context
         brand_context = None
         if conversation.brand_locked:
@@ -349,10 +348,9 @@ async def generate_script_and_video(
             session, conversation_id, tenant_id, "user",
             f"Generate script, audio, and video for {request.ugc_image_path}"
         )
-    
-    run_tree = langsmith.get_current_run_tree()
-    
-    try:
+        
+        run_tree = langsmith.get_current_run_tree()
+        
         # Get brand context
         brand_context = None
         if conversation.brand_locked:

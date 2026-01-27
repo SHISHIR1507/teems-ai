@@ -30,6 +30,11 @@ else:
     s3_client = boto3.client('s3', region_name=AWS_REGION)
 
 
+def get_s3_client():
+    """Get the S3 client instance."""
+    return s3_client
+
+
 def upload_file_to_s3(
     file_path: str,
     s3_key: str,
