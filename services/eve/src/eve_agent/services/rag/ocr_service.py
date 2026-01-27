@@ -6,7 +6,7 @@ import httpx
 from pathlib import Path
 from typing import Tuple
 
-from ...config import get_settings
+from ...core.config import get_settings
 
 settings = get_settings()
 

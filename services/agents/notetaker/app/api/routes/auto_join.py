@@ -12,6 +12,11 @@ from app.services.db_helpers import (
     get_upcoming_calendar_events
 )
 from app.orchestrator.meeting_orchestrator import auto_join_meeting
+from app.services.notification_service import (
+    notify_meeting_join_started,
+    notify_meeting_join_completed,
+    notify_meeting_join_failed
+)
 from datetime import datetime, timedelta
 import pytz
 
@@ -47,6 +52,14 @@ async def manual_join_meeting(
                 detail="Call is not associated with a calendar event"
             )
         
+        # Notify join started
+        await notify_meeting_join_started(
+            tenant_id,
+            call.id,
+            call.title,
+            call.start_time.isoformat() if call.start_time else ""
+        )
+        
         # Use orchestrator to join (runs in thread pool)
         import asyncio
         loop = asyncio.get_event_loop()
@@ -58,6 +71,26 @@ async def manual_join_meeting(
             user_id,
             None  # Let orchestrator create its own session
         )
+        
+        # Notify join completed or failed
+        if result.get("success"):
+            # Extract notetaker_id from result message if possible
+            notetaker_id = ""
+            try:
+                import json
+                message = result.get("message", "")
+                # Try to parse JSON from message
+                if "notetaker_id" in message.lower():
+                    import re
+                    match = re.search(r'notetaker[_\s]*id[:\s]*["\']?([a-zA-Z0-9\-]+)', message, re.IGNORECASE)
+                    if match:
+                        notetaker_id = match.group(1)
+            except:
+                pass
+            
+            await notify_meeting_join_completed(tenant_id, call.id, notetaker_id, call.title)
+        else:
+            await notify_meeting_join_failed(tenant_id, call.id, result.get("message", "Unknown error"))
         
         return result
     

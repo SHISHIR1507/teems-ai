@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 from pydantic import Field
 from functools import lru_cache
+from typing import Optional
 
 load_dotenv()
 
@@ -51,6 +52,9 @@ class Settings(BaseSettings):
     
     # Encryption key for OAuth tokens (32 bytes base64 encoded)
     encryption_key: str = Field(..., alias="ENCRYPTION_KEY")
+    
+    # Redis Configuration (optional, for notifications)
+    redis_url: Optional[str] = Field(None, alias="REDIS_URL")
     
     class Config:
         env_file = ".env"

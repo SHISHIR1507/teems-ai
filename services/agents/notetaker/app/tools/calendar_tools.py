@@ -5,6 +5,8 @@ from crewai.tools import tool
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 import pytz
+import json
+import logging
 from app.services.google_calendar_service import google_calendar_service
 from app.services.timezone_service import timezone_service
 from app.services.db_helpers import (
@@ -18,7 +20,6 @@ from app.services.db_helpers import (
 )
 from app.services.encryption_service import encryption_service
 from app.tools.async_helper import run_async
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -57,115 +58,114 @@ def sync_google_calendar(tenant_id: str, user_id: str, db_session=None) -> str:
         try:
             # Get user settings (async call in sync context)
             settings = run_async(get_user_settings(db_session, tenant_id, user_id))
-        if not settings or not settings.google_calendar_enabled:
-            return '{"error": "Google Calendar not enabled for user", "synced": 0}'
-        
-        if not settings.google_oauth_token or not settings.google_oauth_refresh_token:
-            return '{"error": "Google OAuth tokens not found", "synced": 0}'
-        
-        # Get credentials from encrypted tokens
-        credentials = google_calendar_service.get_credentials_from_encrypted(
-            settings.google_oauth_token,
-            settings.google_oauth_refresh_token
-        )
-        
-        if not credentials:
-            return '{"error": "Failed to get Google credentials", "synced": 0}'
-        
-        # Sync events (next 7 days)
-        time_min = datetime.now(pytz.UTC)
-        time_max = time_min + timedelta(days=7)
-        
-        google_events = google_calendar_service.sync_calendar_events(
-            credentials,
-            time_min=time_min,
-            time_max=time_max
-        )
-        
-        synced_count = 0
-        events_data = []
-        
-        for google_event in google_events:
-            google_event_id = google_event.get('id')
-            if not google_event_id:
-                continue
+            if not settings or not settings.google_calendar_enabled:
+                return '{"error": "Google Calendar not enabled for user", "synced": 0}'
             
-            # Check if event already exists
-            existing_event = run_async(get_calendar_event_by_google_id(
+            if not settings.google_oauth_token or not settings.google_oauth_refresh_token:
+                return '{"error": "Google OAuth tokens not found", "synced": 0}'
+            
+            # Get credentials from encrypted tokens
+            credentials = google_calendar_service.get_credentials_from_encrypted(
+                settings.google_oauth_token,
+                settings.google_oauth_refresh_token
+            )
+            
+            if not credentials:
+                return '{"error": "Failed to get Google credentials", "synced": 0}'
+            
+            # Sync events (next 7 days)
+            time_min = datetime.now(pytz.UTC)
+            time_max = time_min + timedelta(days=7)
+            
+            google_events = google_calendar_service.sync_calendar_events(
+                credentials,
+                time_min=time_min,
+                time_max=time_max
+            )
+            
+            synced_count = 0
+            events_data = []
+            
+            for google_event in google_events:
+                google_event_id = google_event.get('id')
+                if not google_event_id:
+                    continue
+                
+                # Check if event already exists
+                existing_event = run_async(get_calendar_event_by_google_id(
+                    db_session,
+                    google_event_id,
+                    tenant_id
+                ))
+                
+                # Parse event times
+                start_dict = google_event.get('start', {})
+                end_dict = google_event.get('end', {})
+                
+                start_time = google_calendar_service.parse_event_datetime(start_dict)
+                end_time = google_calendar_service.parse_event_datetime(end_dict)
+                
+                if not start_time or not end_time:
+                    continue
+                
+                # Extract meeting link
+                meeting_link = google_calendar_service.extract_meeting_link_from_event(google_event)
+                
+                # Detect platform
+                from app.services.meeting_detection_service import meeting_detection_service
+                meeting_platform = None
+                if meeting_link:
+                    meeting_platform = meeting_detection_service.detect_platform(meeting_link)
+                
+                title = google_event.get('summary', 'Untitled Event')
+                description = google_event.get('description', '')
+                
+                if existing_event:
+                    # Update existing event
+                    run_async(update_calendar_event(
+                        db_session,
+                        existing_event.id,
+                        tenant_id,
+                        title=title,
+                        description=description,
+                        start_time=start_time,
+                        end_time=end_time,
+                        meeting_link=meeting_link,
+                        meeting_platform=meeting_platform
+                    ))
+                else:
+                    # Create new event
+                    run_async(create_calendar_event(
+                        db_session,
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        google_event_id=google_event_id,
+                        title=title,
+                        description=description,
+                        start_time=start_time,
+                        end_time=end_time,
+                        meeting_link=meeting_link,
+                        meeting_platform=meeting_platform
+                    ))
+                
+                synced_count += 1
+                events_data.append({
+                    "id": google_event_id,
+                    "title": title,
+                    "start_time": start_time.isoformat(),
+                    "has_meeting_link": meeting_link is not None
+                })
+            
+            # Update last sync time
+            run_async(update_user_settings(
                 db_session,
-                google_event_id,
-                tenant_id
+                tenant_id,
+                user_id,
+                last_calendar_sync=datetime.utcnow()
             ))
             
-            # Parse event times
-            start_dict = google_event.get('start', {})
-            end_dict = google_event.get('end', {})
+            run_async(db_session.commit())
             
-            start_time = google_calendar_service.parse_event_datetime(start_dict)
-            end_time = google_calendar_service.parse_event_datetime(end_dict)
-            
-            if not start_time or not end_time:
-                continue
-            
-            # Extract meeting link
-            meeting_link = google_calendar_service.extract_meeting_link_from_event(google_event)
-            
-            # Detect platform
-            from app.services.meeting_detection_service import meeting_detection_service
-            meeting_platform = None
-            if meeting_link:
-                meeting_platform = meeting_detection_service.detect_platform(meeting_link)
-            
-            title = google_event.get('summary', 'Untitled Event')
-            description = google_event.get('description', '')
-            
-            if existing_event:
-                # Update existing event
-                run_async(update_calendar_event(
-                    db_session,
-                    existing_event.id,
-                    tenant_id,
-                    title=title,
-                    description=description,
-                    start_time=start_time,
-                    end_time=end_time,
-                    meeting_link=meeting_link,
-                    meeting_platform=meeting_platform
-                ))
-            else:
-                # Create new event
-                run_async(create_calendar_event(
-                    db_session,
-                    tenant_id=tenant_id,
-                    user_id=user_id,
-                    google_event_id=google_event_id,
-                    title=title,
-                    description=description,
-                    start_time=start_time,
-                    end_time=end_time,
-                    meeting_link=meeting_link,
-                    meeting_platform=meeting_platform
-                ))
-            
-            synced_count += 1
-            events_data.append({
-                "id": google_event_id,
-                "title": title,
-                "start_time": start_time.isoformat(),
-                "has_meeting_link": meeting_link is not None
-            })
-        
-        # Update last sync time
-        run_async(update_user_settings(
-            db_session,
-            tenant_id,
-            user_id,
-            last_calendar_sync=datetime.utcnow()
-        ))
-        
-        run_async(db_session.commit())
-        
-            import json
             return json.dumps({
                 "synced": synced_count,
                 "events": events_data,
@@ -221,20 +221,19 @@ def get_upcoming_meetings(tenant_id: str, user_id: str, db_session=None, hours_a
                 time_min=time_min,
                 time_max=time_max
             ))
-        
-        meetings = []
-        for event in events:
-            meetings.append({
-                "id": event.id,
-                "title": event.title,
-                "start_time": event.start_time.isoformat(),
-                "meeting_link": event.meeting_link,
-                "platform": event.meeting_platform,
-                "status": event.status,
-                "already_joined": event.status in ["joined", "completed"]
-            })
-        
-            import json
+            
+            meetings = []
+            for event in events:
+                meetings.append({
+                    "id": event.id,
+                    "title": event.title,
+                    "start_time": event.start_time.isoformat(),
+                    "meeting_link": event.meeting_link,
+                    "platform": event.meeting_platform,
+                    "status": event.status,
+                    "already_joined": event.status in ["joined", "completed"]
+                })
+            
             return json.dumps({
                 "meetings": meetings,
                 "count": len(meetings)
@@ -280,7 +279,6 @@ def get_calendar_settings(tenant_id: str, user_id: str, db_session=None) -> str:
         try:
             settings = run_async(get_or_create_user_settings(db_session, tenant_id, user_id))
             
-            import json
             return json.dumps({
                 "timezone": settings.timezone,
                 "google_calendar_enabled": settings.google_calendar_enabled,

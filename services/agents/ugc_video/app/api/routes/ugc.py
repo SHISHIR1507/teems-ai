@@ -2,6 +2,21 @@
 UGC generation endpoints
 """
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
+import sys
+from pathlib import Path
+
+# Add shared_libs to path for error standardization
+current_file = Path(__file__).resolve()
+shared_libs_dir = current_file.parent.parent.parent.parent.parent.parent / "platform" / "shared_libs"
+if str(shared_libs_dir) not in sys.path:
+    sys.path.insert(0, str(shared_libs_dir))
+
+try:
+    from pyshared.errors import raise_standard_error
+except ImportError:
+    # Fallback if shared libs not available
+    def raise_standard_error(status_code, message, detail=None, field=None):
+        raise HTTPException(status_code=status_code, detail=message)
 from sqlalchemy.ext.asyncio import AsyncSession
 from langsmith import traceable
 import langsmith
@@ -14,10 +29,17 @@ from datetime import datetime
 from crewai import Task, Crew
 
 from app.core.dependencies import get_db_session
+from app.core.auth import AuthenticatedUser, require_tenant
 from app.core.config import LANGCHAIN_PROJECT
 from app.models.schemas import ChatResponse, ScriptRequest, ScriptVideoResponse
 from app.services import db_helpers
 from app.services.s3_utils import upload_bytes_to_s3, get_s3_key_for_upload
+from app.services.realtime_notifier import (
+    notify_job_started,
+    notify_job_progress,
+    notify_job_completed,
+    notify_job_error
+)
 from app.orchestrator.ugc_orchestrator import generate_ugc_with_orchestrator, chat_with_agent
 from app.agents.script_agent import create_script_agent
 from app.agents.audio_video_agent import create_audio_video_agent
@@ -32,31 +54,47 @@ except Exception as e:
     langsmith_client = None
 
 
-@router.post("/upload", response_model=ChatResponse)
+@router.post("/v1/ugc/upload", response_model=ChatResponse, tags=["ugc"])
 @traceable(name="chat_ugc_upload_endpoint", tags=["fastapi", "ugc-generation"])
 async def chat_ugc_upload_endpoint(
     message: str = Form(...),
     person_image: Optional[UploadFile] = File(None),
     product_image: Optional[UploadFile] = File(None),
     conversation_id: Optional[str] = Form(None),
+    user: AuthenticatedUser = Depends(require_tenant()),
     session: AsyncSession = Depends(get_db_session)
 ):
-    """Upload images and generate UGC with DB & S3 storage (NO local temp files)"""
-    conversation_id = conversation_id or str(uuid.uuid4())
+    """
+    Upload images and generate UGC with DB & S3 storage (NO local temp files)
     
-    # Get or create conversation
-    conversation = await db_helpers.get_conversation(session, conversation_id)
-    if not conversation:
-        conversation = await db_helpers.create_conversation(session, conversation_id)
-    
-    # Add user message to database
-    await db_helpers.add_message(session, conversation_id, "user", message)
+    Requires authentication with tenant_id.
+    """
+    try:
+        tenant_id = user.tenant_id
+        user_id = user.sub
+        conversation_id = conversation_id or str(uuid.uuid4())
+        
+        # Get or create conversation with tenant isolation
+        conversation = await db_helpers.get_or_create_conversation(
+            session, conversation_id, tenant_id, user_id
+        )
+        
+        # Add user message to database
+        await db_helpers.add_message(session, conversation_id, tenant_id, "user", message)
     
     person_image_s3_url = None
     product_image_s3_url = None
     
     # Upload person image to S3 if provided (public-read for AI/ML API access)
     if person_image:
+        # Notify progress if we're uploading images
+        await notify_job_progress(
+            tenant_id,
+            conversation_id,
+            "ugc_image_generation",
+            {"step": "uploading_images", "progress": 5},
+            "Uploading images to S3..."
+        )
         content = await person_image.read()
         s3_key = get_s3_key_for_upload(conversation_id, person_image.filename, "person")
         person_image_s3_url = upload_bytes_to_s3(
@@ -68,7 +106,7 @@ async def chat_ugc_upload_endpoint(
         
         # Save to database
         await db_helpers.add_asset(
-            session, conversation_id, "uploaded_person", person_image_s3_url,
+            session, conversation_id, tenant_id, user_id, "uploaded_person", person_image_s3_url,
             person_image.filename, {"size": len(content)}
         )
         print(f"✅ Person image uploaded to S3: {person_image_s3_url}")
@@ -86,7 +124,7 @@ async def chat_ugc_upload_endpoint(
         
         # Save to database
         await db_helpers.add_asset(
-            session, conversation_id, "uploaded_product", product_image_s3_url,
+            session, conversation_id, tenant_id, user_id, "uploaded_product", product_image_s3_url,
             product_image.filename, {"size": len(content)}
         )
         print(f"✅ Product image uploaded to S3: {product_image_s3_url}")
@@ -115,7 +153,7 @@ async def chat_ugc_upload_endpoint(
                 assistant_message = str(result)
                 steps = [{"type": "guidance", "description": "Brand sync required", "timestamp": datetime.now().isoformat()}]
                 
-                await db_helpers.add_message(session, conversation_id, "assistant", assistant_message)
+                await db_helpers.add_message(session, conversation_id, tenant_id, "assistant", assistant_message)
                 
                 return ChatResponse(
                     conversation_id=conversation_id,
@@ -126,11 +164,32 @@ async def chat_ugc_upload_endpoint(
                     trace_url=None
                 )
             
+            # Notify job started for image generation
+            await notify_job_started(
+                tenant_id,
+                conversation_id,
+                "ugc_image_generation",
+                {
+                    "message": message,
+                    "has_images": True,
+                    "brand_context": brand_context
+                }
+            )
+            
             # Brand is locked - proceed with generation using S3 URLs directly
             print(f"\n{'='*60}")
             print(f"Processing UGC generation: {conversation_id}")
             print(f"Using S3 URLs directly (no temp files)")
             print(f"{'='*60}\n")
+            
+            # Notify progress: generating prompts
+            await notify_job_progress(
+                tenant_id,
+                conversation_id,
+                "ugc_image_generation",
+                {"step": "generating_prompts", "progress": 30},
+                "Analyzing images and generating prompts..."
+            )
             
             # Call orchestrator with S3 URLs (NO temp files!)
             result = generate_ugc_with_orchestrator(
@@ -156,6 +215,15 @@ async def chat_ugc_upload_endpoint(
                 print(f"Number of images: {len(result.get('generated_images', []))}")
             print(f"{'='*60}\n")
             
+            # Notify progress: generating images
+            await notify_job_progress(
+                tenant_id,
+                conversation_id,
+                "ugc_image_generation",
+                {"step": "generating_images", "progress": 60},
+                "Generating 4 UGC image variants..."
+            )
+            
             # Extract data from structured response
             assistant_message = result.get("message", str(result))
             generated_s3_urls = result.get("generated_images", [])
@@ -172,6 +240,8 @@ async def chat_ugc_upload_endpoint(
             await db_helpers.add_asset(
                 session=session,
                 conversation_id=conversation_id,
+                tenant_id=tenant_id,
+                user_id=user_id,
                 asset_type="generated_image",
                 url=s3_url,
                 filename=f"variant_{idx}.png",
@@ -190,17 +260,30 @@ async def chat_ugc_upload_endpoint(
             })
         
         # Add assistant message to database
-        await db_helpers.add_message(session, conversation_id, "assistant", assistant_message)
+        await db_helpers.add_message(session, conversation_id, tenant_id, "assistant", assistant_message)
         
         # Get trace URL
         trace_url = None
         if run_tree and run_tree.id and langsmith_client:
             try:
-                tenant_id = langsmith_client._get_tenant_id()
+                tenant_id_ls = langsmith_client._get_tenant_id()
                 project_name = os.getenv("LANGCHAIN_PROJECT", LANGCHAIN_PROJECT)
-                trace_url = f"https://smith.langchain.com/o/{tenant_id}/projects/p/{project_name}/r/{run_tree.id}"
+                trace_url = f"https://smith.langchain.com/o/{tenant_id_ls}/projects/p/{project_name}/r/{run_tree.id}"
             except:
                 pass
+        
+        # Notify job completed if images were generated
+        if generated_s3_urls:
+            await notify_job_completed(
+                tenant_id,
+                conversation_id,
+                "ugc_image_generation",
+                {
+                    "generated_images": generated_s3_urls,
+                    "count": len(generated_s3_urls),
+                    "trace_url": trace_url
+                }
+            )
         
         return ChatResponse(
             conversation_id=conversation_id,
@@ -211,33 +294,61 @@ async def chat_ugc_upload_endpoint(
             trace_url=trace_url
         )
     
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        # Notify error
+        try:
+            await notify_job_error(
+                tenant_id,
+                conversation_id,
+                "ugc_image_generation",
+                str(e),
+                {"error_type": type(e).__name__}
+            )
+        except:
+            pass
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
-@router.post("/script", response_model=ScriptVideoResponse)
+@router.post("/v1/ugc/script", response_model=ScriptVideoResponse, tags=["ugc"])
 @traceable(name="generate_script_audio_video_endpoint", tags=["fastapi", "script-audio-video"])
 async def generate_script_and_video(
     request: ScriptRequest,
+    user: AuthenticatedUser = Depends(require_tenant()),
     session: AsyncSession = Depends(get_db_session)
 ):
     """
     Generate UGC script, audio, and video (2-agent sequential workflow)
     Works with S3 URLs or local paths
+    
+    Requires authentication with tenant_id.
+    Brand context must be synced before generating scripts.
     """
-    conversation_id = request.conversation_id or str(uuid.uuid4())
-    
-    # Get or create conversation
-    conversation = await db_helpers.get_conversation(session, conversation_id)
-    if not conversation:
-        conversation = await db_helpers.create_conversation(session, conversation_id)
-    
-    # Add user message
-    await db_helpers.add_message(
-        session, conversation_id, "user",
-        f"Generate script, audio, and video for {request.ugc_image_path}"
-    )
+    try:
+        tenant_id = user.tenant_id
+        user_id = user.sub
+        conversation_id = request.conversation_id or str(uuid.uuid4())
+        
+        # Get or create conversation with tenant isolation
+        conversation = await db_helpers.get_or_create_conversation(
+            session, conversation_id, tenant_id, user_id
+        )
+        
+        # Verify ownership
+        if not await db_helpers.verify_conversation_ownership(session, conversation_id, tenant_id):
+            raise_standard_error(
+                status_code=403,
+                message="Access denied",
+                detail="Access denied to this conversation"
+            )
+        
+        # Add user message
+        await db_helpers.add_message(
+            session, conversation_id, tenant_id, "user",
+            f"Generate script, audio, and video for {request.ugc_image_path}"
+        )
     
     run_tree = langsmith.get_current_run_tree()
     
@@ -254,12 +365,29 @@ async def generate_script_and_video(
         
         # Check if brand is locked
         if not brand_context or not brand_context.get('locked'):
-            raise HTTPException(status_code=400, detail="Brand context must be synced before generating scripts")
+            raise_standard_error(
+                status_code=400,
+                message="Brand context required",
+                detail="Brand context must be synced before generating scripts. Please sync brand context first."
+            )
         
         industry = brand_context.get('industry')
         audience = brand_context.get('audience')
         vibe = brand_context.get('vibe')
         voice_name = AVATAR_VOICE_MAP.get(request.avatar_id, "Harry")
+        
+        # Notify job started
+        await notify_job_started(
+            tenant_id,
+            conversation_id,
+            "script_audio_video",
+            {
+                "ugc_image_path": request.ugc_image_path,
+                "product_name": request.product_name,
+                "avatar_id": request.avatar_id,
+                "platform": request.platform
+            }
+        )
         
         print(f"\n{'='*60}")
         print(f"Starting 2-Agent Workflow: Script → Audio+Video")
@@ -270,6 +398,16 @@ async def generate_script_and_video(
         # STEP 1: Generate Script (Dialogue + Video Script)
         # ============================================================
         print("STEP 1/2: Generating Script...")
+        
+        # Notify progress: generating script
+        await notify_job_progress(
+            tenant_id,
+            conversation_id,
+            "script_audio_video",
+            {"step": "generating_script", "progress": 20},
+            "Generating script and dialogue..."
+        )
+        
         script_agent = create_script_agent()
         
         task1 = Task(
@@ -316,6 +454,15 @@ Return the complete output with both dialogue and video script.""",
         
         print(f"✅ Script Generated! Dialogue: {len(dialogue)} chars, Script: {len(video_script)} chars")
         
+        # Notify progress: generating audio
+        await notify_job_progress(
+            tenant_id,
+            conversation_id,
+            "script_audio_video",
+            {"step": "generating_audio", "progress": 50},
+            "Generating audio from dialogue..."
+        )
+        
         # ============================================================
         # STEP 2: Generate Audio + Video (Single Agent)
         # ============================================================
@@ -344,11 +491,22 @@ STEP 2: Call "Veo3.1 Image-to-Video Generator" tool with:
 - image_reference: {request.ugc_image_path}
 - script_text: {video_script}
 - duration_seconds: 8
+- tenant_id: {tenant_id}
+- conversation_id: {conversation_id}
 
 Return both the audio S3 URL and video URL.""",
             expected_output="Audio S3 URL and Video URL",
             agent=audio_video_agent,
             human_input=False
+        )
+        
+        # Notify progress: generating video (this is the longest step)
+        await notify_job_progress(
+            tenant_id,
+            conversation_id,
+            "script_audio_video",
+            {"step": "generating_video", "progress": 70},
+            "Generating video (this may take 30-90 seconds)..."
         )
         
         crew2 = Crew(agents=[audio_video_agent], tasks=[task2], verbose=True, process="sequential")
@@ -365,7 +523,7 @@ Return both the audio S3 URL and video URL.""",
                 
                 # Store in database
                 await db_helpers.add_asset(
-                    session, conversation_id, "audio", audio_s3_url,
+                    session, conversation_id, tenant_id, user_id, "audio", audio_s3_url,
                     audio_filename, {"voice": voice_name, "avatar_id": request.avatar_id}
                 )
         
@@ -381,7 +539,7 @@ Return both the audio S3 URL and video URL.""",
                 
                 # Store in database
                 await db_helpers.add_asset(
-                    session, conversation_id, "video", video_url,
+                    session, conversation_id, tenant_id, user_id, "video", video_url,
                     f"video_{conversation_id}.mp4", {"duration": 8, "platform": request.platform}
                 )
         
@@ -389,15 +547,43 @@ Return both the audio S3 URL and video URL.""",
         trace_url = None
         if run_tree and run_tree.id and langsmith_client:
             try:
-                tenant_id = langsmith_client._get_tenant_id()
+                tenant_id_ls = langsmith_client._get_tenant_id()
                 project_name = os.getenv("LANGCHAIN_PROJECT", LANGCHAIN_PROJECT)
-                trace_url = f"https://smith.langchain.com/o/{tenant_id}/projects/p/{project_name}/r/{run_tree.id}"
+                trace_url = f"https://smith.langchain.com/o/{tenant_id_ls}/projects/p/{project_name}/r/{run_tree.id}"
             except:
                 pass
         
         print(f"\n{'='*60}")
         print(f"✅ Complete! Audio: {audio_s3_url is not None}, Video: {video_url is not None}")
         print(f"{'='*60}\n")
+        
+        # Determine completion status
+        current_step = "completed"
+        progress_percentage = 100
+        if not audio_s3_url and not video_url:
+            current_step = "script"
+            progress_percentage = 33
+        elif audio_s3_url and not video_url:
+            current_step = "audio"
+            progress_percentage = 66
+        elif audio_s3_url and video_url:
+            current_step = "completed"
+            progress_percentage = 100
+        
+        # Notify job completed
+        await notify_job_completed(
+            tenant_id,
+            conversation_id,
+            "script_audio_video",
+            {
+                "script": video_script,
+                "dialogue": dialogue,
+                "audio_url": audio_s3_url,
+                "video_url": video_url,
+                "voice_used": voice_name,
+                "trace_url": trace_url
+            }
+        )
         
         return ScriptVideoResponse(
             conversation_id=conversation_id,
@@ -409,9 +595,29 @@ Return both the audio S3 URL and video URL.""",
             avatar_id=request.avatar_id,
             voice_used=voice_name,
             timestamp=datetime.now().isoformat(),
-            trace_url=trace_url
+            trace_url=trace_url,
+            current_step=current_step,
+            total_steps=3,
+            progress_percentage=progress_percentage
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error in script/audio/video generation: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error: {str(e)}")
+        # Notify error
+        try:
+            await notify_job_error(
+                tenant_id,
+                conversation_id,
+                "script_audio_video",
+                str(e),
+                {"error_type": type(e).__name__}
+            )
+        except:
+            pass
+        raise_standard_error(
+            status_code=500,
+            message="Internal server error",
+            detail=str(e)
+        )

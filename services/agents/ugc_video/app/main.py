@@ -32,35 +32,60 @@ if shared_libs_dir and shared_libs_dir.exists():
     try:
         from pyshared import add_env_cors  # noqa: E402
     except ImportError:
-        # Fallback to basic CORS if shared libs not available
+        # Fallback: parse CORS_ALLOWED_ORIGINS from env with safe defaults
         from fastapi.middleware.cors import CORSMiddleware
+        from app.core.config import get_cors_origins
+        
         def add_env_cors(app):
-            app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+            app.add_middleware(
+                CORSMiddleware,
+                allow_origins=get_cors_origins(),
+                allow_credentials=True,
+                allow_methods=["*"],
+                allow_headers=["*"]
+            )
 else:
-    # No shared libs found, use fallback
+    # Fallback: parse CORS_ALLOWED_ORIGINS from env with safe defaults
     from fastapi.middleware.cors import CORSMiddleware
+    from app.core.config import get_cors_origins
+    
     def add_env_cors(app):
-        app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=get_cors_origins(),
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"]
+        )
 
 from app.core.database import init_db
-from app.api.routes import brand_sync, ugc, conversation
+from app.api.routes import brand_sync, ugc, conversation, health
 
-app = FastAPI(title="UGC Orchestrator API with DB & S3", version="2.0.0")
+app = FastAPI(
+    title="UGC Orchestrator API with DB & S3",
+    description="CrewAI-based agent service for UGC video generation with tenant isolation",
+    version="2.0.0"
+)
 
-# Add CORS middleware (env-driven origins with localhost defaults)
+# Add CORS middleware (no wildcards, specific origins only)
 add_env_cors(app)
 
-# Include routers
-app.include_router(brand_sync.router, prefix="/orchestrator", tags=["brand-sync"])
-app.include_router(ugc.router, prefix="/chat/ugc", tags=["ugc"])
-app.include_router(conversation.router, prefix="/conversation", tags=["conversation"])
+# Include routers with versioned paths
+app.include_router(health.router, tags=["health"])
+app.include_router(brand_sync.router, tags=["brand-sync"])
+app.include_router(ugc.router, tags=["ugc"])
+app.include_router(conversation.router, tags=["conversations"])
 
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize database tables on startup"""
-    await init_db()
-    print("✅ Server started with database & S3 integration")
+    try:
+        await init_db()
+        print("✅ Server started with database & S3 integration")
+    except Exception as e:
+        print(f"⚠️  Database initialization failed: {e}")
+        print("⚠️  API will start but database operations may fail")
 
 
 @app.get("/")
@@ -69,18 +94,6 @@ async def serve_frontend():
     if os.path.exists("chatbox.html"):
         return FileResponse("chatbox.html")
     return {"message": "Frontend not found"}
-
-
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {
-        "status": "online",
-        "service": "UGC Orchestrator API with DB & S3",
-        "version": "2.0.0",
-        "database": "PostgreSQL",
-        "storage": "AWS S3"
-    }
 
 
 @app.get("/image/{filename}", deprecated=True)

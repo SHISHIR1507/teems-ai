@@ -12,6 +12,9 @@ pgvector==0.3.6
 alembic==1.14.0
 asyncpg>=0.29,<0.30
 
+# Redis (for realtime notifications)
+redis>=5.0.0
+
 # S3 Storage
 boto3==1.35.80
 botocore==1.35.80

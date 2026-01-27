@@ -43,6 +43,7 @@ LANGCHAIN_PROJECT = os.getenv("LANGCHAIN_PROJECT", "presentation-agent")
 from pydantic_settings import BaseSettings
 from pydantic import Field
 from functools import lru_cache
+from typing import Optional
 
 
 class Settings(BaseSettings):
@@ -72,6 +73,9 @@ class Settings(BaseSettings):
     
     # Webhook
     webhook_base_url: str = Field(default="https://api.teems.ai", alias="WEBHOOK_BASE_URL")
+    
+    # Redis (optional, for realtime notifications)
+    redis_url: Optional[str] = Field(None, alias="REDIS_URL")
     
     class Config:
         env_file = ".env"

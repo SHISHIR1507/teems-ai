@@ -3,10 +3,10 @@ from loguru import logger
 import sys
 from pathlib import Path
 
-from .config import get_settings
+from .core.config import get_settings
+from .core.database import init_db
 from .api.routes import router
 from .dependencies import initialize_mcp_clients
-from .database.session import init_db
 
 settings = get_settings()
 
@@ -78,7 +78,8 @@ def create_app() -> FastAPI:
         
         # Initialize database
         try:
-            init_db()
+            import asyncio
+            asyncio.run(init_db())
             logger.info("Database initialized")
         except Exception as e:
             logger.warning(f"Database initialization warning: {e}")

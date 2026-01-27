@@ -172,6 +172,17 @@ async def startup_event():
         logger.warning("⚠️  API will start but database operations may fail")
 
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Close Redis connection on shutdown"""
+    try:
+        from app.services.realtime_notifier import close_redis
+        await close_redis()
+        logger.info("Redis connection closed")
+    except Exception as e:
+        logger.warning(f"Error closing Redis: {e}")
+
+
 # Static files (for index.html if needed)
 @app.get("/", response_class=HTMLResponse)
 async def serve_home():

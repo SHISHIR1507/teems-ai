@@ -18,6 +18,10 @@ from app.services.db_helpers import (
 )
 from app.orchestrator.fashion_orchestrator import generate_images_orchestrated
 from app.services.s3_service import upload_to_s3
+from app.services.realtime_notifier import (
+    notify_image_generation_started,
+    notify_image_generation_completed,
+)
 from app.core.logging import get_logger
 import re
 import uuid as _uuid
@@ -68,6 +72,17 @@ async def generate_images(
             user.sub, session_id, status="processing"
         )
         
+        # Extract angles and variations from scene if available (for notification)
+        angles_count = 2  # default
+        variations = 2  # default
+        # Could parse from scene_description or use defaults
+        
+        # Notify generation started
+        await notify_image_generation_started(
+            tenant_id, session_id, batch_id,
+            request.scene_description, angles_count, variations
+        )
+        
         result = generate_images_orchestrated(
             scene_description=request.scene_description,
             avatar_urls=avatar_urls,
@@ -107,6 +122,13 @@ async def generate_images(
         await update_session_metadata(
             db, session_id, tenant_id,
             {"last_generation_batch_id": batch_id},
+        )
+        
+        # Notify completion
+        await notify_image_generation_completed(
+            tenant_id, session_id, batch_id, new_gen_urls,
+            success=bool(new_gen_urls),
+            error=None if new_gen_urls else "No images generated"
         )
         
         return ImageGenerationResponse(

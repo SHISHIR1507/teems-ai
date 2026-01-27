@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from ...config import get_settings
+from ...core.config import get_settings
 
 settings = get_settings()
 

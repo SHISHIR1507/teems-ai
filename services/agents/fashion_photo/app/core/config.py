@@ -45,6 +45,9 @@ class Settings(BaseSettings):
     langchain_project: str = Field(default="fashion_photo_agent", alias="LANGSMITH_PROJECT")
     langchain_api_key: str = Field(default="", alias="LANGSMITH_API_KEY")
     
+    # Redis Configuration (for realtime notifications)
+    redis_url: str | None = Field(None, alias="REDIS_URL")
+    
     # Preset Avatars (can be set via env as comma-separated)
     preset_avatars: list[str] = Field(default_factory=lambda: DEFAULT_PRESET_AVATARS)
     

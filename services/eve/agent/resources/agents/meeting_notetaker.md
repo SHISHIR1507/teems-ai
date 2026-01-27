@@ -4,6 +4,7 @@ name: Meeting Notetaker
 category: productivity
 status: available
 ui_route: /agents/meeting-notetaker
+agent_manager_id: <uuid-from-agent-manager>
 ---
 
 # Meeting Notetaker Agent

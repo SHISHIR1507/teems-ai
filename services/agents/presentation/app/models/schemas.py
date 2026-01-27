@@ -27,6 +27,7 @@ class ChatResponse(BaseModel):
     presentation_id: Optional[str] = Field(None, description="Presentation ID if created")
     download_url: Optional[str] = Field(None, description="Download URL if available")
     conversation_id: Optional[str] = Field(None, description="Conversation ID")
+    status_url: Optional[str] = Field(None, description="URL to check task status")
 
 
 class PresentationResponse(BaseModel):
@@ -40,6 +41,9 @@ class PresentationResponse(BaseModel):
     slidespeak_presentation_id: Optional[str] = None
     created_at: str
     updated_at: str
+    is_downloadable: bool = Field(default=False, description="Whether presentation is ready for download")
+    file_size: Optional[int] = Field(None, description="File size in bytes if available")
+    file_format: Optional[str] = Field(None, description="File format (e.g., 'pptx', 'pdf')")
 
 
 class PresentationListResponse(BaseModel):

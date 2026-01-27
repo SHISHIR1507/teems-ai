@@ -20,6 +20,11 @@ from app.services.nylas_service import nylas_service
 from app.services.rag_service import rag_service
 from app.services.chunker import chunk_text_for_rag
 from app.services.embeddings import embedder
+from app.services.notification_service import (
+    notify_meeting_processing_started,
+    notify_meeting_processing_completed,
+    notify_call_status_updated
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -134,6 +139,9 @@ async def nylas_webhook_post(
             if call.transcript and len(call.transcript) > 100:
                 logger.info(f"Meeting already processed ({len(call.transcript)} chars), skipping")
                 return Response(content="OK", media_type="text/plain")
+            
+            # Notify processing started
+            await notify_meeting_processing_started(call.tenant_id, call.id, call.title)
             
             # Update meeting_id if needed
             if not call.meeting_id or call.meeting_id != nylas_meeting_id:
@@ -263,6 +271,22 @@ async def nylas_webhook_post(
                 tenant_id=call.tenant_id,
                 status="completed"
             )
+            
+            # Notify processing completed
+            has_transcript = bool(call.transcript and len(call.transcript) > 100)
+            has_summary = bool(call.summary)
+            has_action_items = bool(call.action_items)
+            
+            await notify_meeting_processing_completed(
+                call.tenant_id,
+                call.id,
+                has_transcript,
+                has_summary,
+                has_action_items
+            )
+            
+            # Notify status update
+            await notify_call_status_updated(call.tenant_id, call.id, "completed", call.title)
             
             logger.info(f"Successfully processed meeting: {call.title}")
         

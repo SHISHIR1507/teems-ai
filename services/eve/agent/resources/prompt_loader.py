@@ -85,11 +85,6 @@ def detect_context_prompts(tools_used: List[str]) -> List[str]:
     tool_prompt_map = {
         "tavily": "research",
         "search": "research",
-        "mcp_meeting": "meetings",
-        "meeting": "meetings",
-        "list_meetings": "meetings",
-        "get_meeting": "meetings",
-        "ask_meeting": "meetings",
         "query": "database",
         "postgres": "database",
         "sql": "database",
@@ -119,7 +114,7 @@ def get_initial_system_prompt() -> str:
     """
     return build_system_prompt(
         base="eve",
-        context_prompts=["research", "database", "meetings", "documents"]
+        context_prompts=["research", "database", "documents"]
     )
 
 

@@ -152,6 +152,14 @@ async def startup_event():
         print("⚠️  API will start but database operations may fail")
 
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup on shutdown"""
+    from app.services.realtime_notifier import close_redis
+    await close_redis()
+    print("✅ Shutdown complete")
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)

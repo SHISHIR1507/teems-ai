@@ -45,6 +45,7 @@ app/
 - Python 3.9+
 - PostgreSQL database (running locally or remotely)
 - AWS S3 bucket with appropriate credentials
+- Auth0 account (already configured) for authentication
 - API keys for:
   - OpenAI/AIML API (for agents and GPT-5.2)
   - LangSmith (for tracing and observability)
@@ -83,15 +84,26 @@ LANGCHAIN_API_KEY=your_langsmith_key
 LANGCHAIN_TRACING_V2=true
 LANGCHAIN_PROJECT=ugc-orchestrator
 
+# Auth0 (for authentication - already configured)
+AUTH0_DOMAIN=your-auth0-domain.auth0.com
+AUTH0_AUDIENCE=your-api-audience
+
+# CORS Configuration (optional)
+CORS_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com
+
 # Optional: Lipsync API
 LIPSYNC_API_KEY=your_lipsync_key
 ```
 
 ### 3. Initialize Database
 
-Run the migration script to set up database tables:
+Run the migration scripts to set up database tables:
 
 ```bash
+# First, run the tenant isolation migration
+python migrations/add_tenant_isolation_migration.py
+
+# Then, run the column migration (if needed)
 python migrations/add_columns_migration.py
 ```
 
@@ -136,14 +148,17 @@ Expected response:
 Before generating any content, sync your brand context:
 
 ```bash
-curl -X POST http://localhost:8000/orchestrator/brand-sync \
+curl -X POST http://localhost:8000/v1/brand/sync \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_AUTH0_TOKEN" \
   -d '{
     "industry": "skincare",
     "audience": "Gen Z women",
     "vibe": "authentic and relatable"
   }'
 ```
+
+**Note:** All endpoints require authentication with a valid Auth0 JWT token in the `Authorization` header.
 
 Response includes:
 - `conversation_id`: Use this for subsequent requests
@@ -155,7 +170,8 @@ Response includes:
 Upload person and product images to generate 4 UGC variants:
 
 ```bash
-curl -X POST http://localhost:8000/chat/ugc/upload \
+curl -X POST http://localhost:8000/v1/ugc/upload \
+  -H "Authorization: Bearer YOUR_AUTH0_TOKEN" \
   -F "message=Generate UGC images showing the product in use" \
   -F "person_image=@/path/to/person.jpg" \
   -F "product_image=@/path/to/product.jpg" \
@@ -173,8 +189,9 @@ Response includes:
 Use one of the generated images to create a complete video:
 
 ```bash
-curl -X POST http://localhost:8000/chat/ugc/script \
+curl -X POST http://localhost:8000/v1/ugc/script \
   -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_AUTH0_TOKEN" \
   -d '{
     "ugc_image_path": "https://teems-agents.s3.../generated_image_1.png",
     "product_name": "Glow Serum",
@@ -197,25 +214,79 @@ Response includes:
 Retrieve all messages and assets for a conversation:
 
 ```bash
-curl http://localhost:8000/conversation/your-conversation-id
+curl http://localhost:8000/v1/conversations/your-conversation-id \
+  -H "Authorization: Bearer YOUR_AUTH0_TOKEN"
 ```
 
-### 6. Delete Conversation
+### 6. List Conversations
+
+List all conversations for your tenant:
 
 ```bash
-curl -X DELETE http://localhost:8000/conversation/your-conversation-id
+curl http://localhost:8000/v1/conversations?limit=20&offset=0 \
+  -H "Authorization: Bearer YOUR_AUTH0_TOKEN"
+```
+
+### 7. Delete Conversation
+
+```bash
+curl -X DELETE http://localhost:8000/v1/conversations/your-conversation-id \
+  -H "Authorization: Bearer YOUR_AUTH0_TOKEN"
 ```
 
 ## 📚 API Endpoints
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/health` | Health check |
-| `POST` | `/orchestrator/brand-sync` | Lock brand context |
-| `POST` | `/chat/ugc/upload` | Upload images & generate UGC variants |
-| `POST` | `/chat/ugc/script` | Generate script, audio & video |
-| `GET` | `/conversation/{id}` | Get conversation history |
-| `DELETE` | `/conversation/{id}` | Delete conversation |
+All endpoints require authentication with a valid Auth0 JWT token in the `Authorization: Bearer <token>` header.
+
+| Method | Endpoint | Description | Auth Required |
+|--------|----------|-------------|---------------|
+| `GET` | `/health` | Health check | No |
+| `POST` | `/v1/brand/sync` | Lock brand context | Yes |
+| `POST` | `/v1/ugc/upload` | Upload images & generate UGC variants | Yes |
+| `POST` | `/v1/ugc/script` | Generate script, audio & video | Yes |
+| `GET` | `/v1/conversations` | List conversations (with pagination) | Yes |
+| `GET` | `/v1/conversations/{id}` | Get conversation history | Yes |
+| `DELETE` | `/v1/conversations/{id}` | Delete conversation | Yes |
+
+## 🔐 Authentication & Authorization
+
+The service uses Auth0 for authentication and implements tenant isolation for all data operations.
+
+### Authentication
+
+All API endpoints (except `/health`) require a valid Auth0 JWT token:
+
+```bash
+Authorization: Bearer <your-auth0-token>
+```
+
+The token must include:
+- `tenant_id` claim (custom claim: `https://teems.ai/tenant_id` or `tenant_id`)
+- Valid audience matching `AUTH0_AUDIENCE`
+- Valid issuer matching Auth0 domain
+
+### Tenant Isolation
+
+All data operations are scoped to the authenticated user's tenant:
+- Conversations are isolated by `tenant_id`
+- Assets are isolated by `tenant_id`
+- Users can only access their own tenant's data
+- Ownership verification is enforced on all operations
+
+### Getting an Auth0 Token
+
+Use your Auth0 application credentials to obtain a token:
+
+```bash
+curl -X POST https://YOUR_AUTH0_DOMAIN/oauth/token \
+  -H "Content-Type: application/json" \
+  -d '{
+    "client_id": "your-client-id",
+    "client_secret": "your-client-secret",
+    "audience": "your-api-audience",
+    "grant_type": "client_credentials"
+  }'
+```
 
 ## 🔍 Observability
 
@@ -290,11 +361,15 @@ aws s3 ls s3://your-bucket-name
 
 ## 📝 Notes
 
+- **Authentication Required**: All endpoints (except `/health`) require Auth0 authentication
+- **Tenant Isolation**: All data is isolated by tenant_id - users can only access their tenant's data
 - **Brand Sync Required**: Brand context must be synced before generating images or scripts
 - **S3-Only Storage**: All assets are stored in S3, no local temp files
 - **Sequential Workflows**: Image generation uses 2-agent sequential workflow (prompt → image)
 - **Parallel Generation**: 4 images are generated in parallel for efficiency
 - **LangSmith Tracing**: Full observability enabled by default
+- **API Versioning**: All endpoints use `/v1/` prefix for versioning
+- **CORS**: Configured with specific allowed origins (no wildcards) for security
 
 ## 🔗 Related Documentation
 

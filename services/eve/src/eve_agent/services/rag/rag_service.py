@@ -7,7 +7,7 @@ import uuid
 
 from .vector_store import vector_store
 from .embedding import get_embedding_provider
-from ...config import get_settings
+from ...core.config import get_settings
 from openai import AsyncOpenAI
 
 settings = get_settings()

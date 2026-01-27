@@ -1,5 +1,6 @@
 """
-Database connection and session management.
+Database connection and session management (legacy sync support).
+This module is kept for backward compatibility but new code should use core.database.
 """
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
@@ -7,12 +8,12 @@ from contextlib import contextmanager
 from typing import Generator
 from loguru import logger
 
-from ..config import get_settings
+from ..core.config import get_settings
 from .base import Base
 
 settings = get_settings()
 
-# Create SQLAlchemy engine
+# Create SQLAlchemy engine (sync - for legacy code)
 engine = create_engine(
     settings.postgres_url,
     pool_pre_ping=True,
@@ -21,13 +22,15 @@ engine = create_engine(
     echo=False  # Set to True for SQL query logging
 )
 
-# Create SessionLocal class
+# Create SessionLocal class (sync - for legacy code)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 def get_db() -> Generator[Session, None, None]:
     """
-    Dependency function for FastAPI to get database session.
+    Dependency function for FastAPI to get database session (sync - legacy).
+    
+    Note: New code should use core.dependencies.get_db_session() for async support.
     
     Usage:
         @app.get("/endpoint")
@@ -44,7 +47,9 @@ def get_db() -> Generator[Session, None, None]:
 @contextmanager
 def get_db_context():
     """
-    Context manager for database session.
+    Context manager for database session (sync - legacy).
+    
+    Note: New code should use async patterns with core.dependencies.get_db_session()
     
     Usage:
         with get_db_context() as db:
@@ -62,7 +67,11 @@ def get_db_context():
 
 
 def init_db():
-    """Initialize database - create tables if they don't exist."""
+    """
+    Initialize database - create tables if they don't exist (sync - legacy).
+    
+    Note: New code should use core.database.init_db() for async support.
+    """
     # Import all models here to ensure they're registered
     from ..models.document import Document, DocumentChunk
     
@@ -81,7 +90,7 @@ def init_db():
 
 
 def check_pgvector_extension():
-    """Check if pgvector extension is installed."""
+    """Check if pgvector extension is installed (sync - legacy)."""
     with engine.connect() as conn:
         result = conn.execute(text(
             "SELECT * FROM pg_extension WHERE extname = 'vector';"

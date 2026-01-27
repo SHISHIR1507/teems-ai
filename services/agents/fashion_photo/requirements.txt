@@ -14,3 +14,4 @@ boto3>=1.42.26
 python-jose[cryptography]>=3.3.0
 httpx>=0.24.0
 langsmith>=0.6.0
+redis>=5.0.0

@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from crewai import Task, Crew
@@ -15,15 +16,25 @@ from app.tools.flow_tools import (
     register_content_link,
     get_conversation_assets,
     suggest_caption_hashtags,
+    parse_scheduled_datetime,
 )
+# Import private helper for datetime parsing
+from app.tools.flow_tools import _parse_datetime_from_text
 from app.tools.platform_tools import get_connected_platforms, get_user_posts
 from app.orchestrator.confirmation import user_confirmed_posting
 from app.services.db_helpers import (
     run_with_db_session,
     get_asset,
     update_conversation_state,
+    create_post,
 )
 from app.services.tiktok_service import TikTokService
+from app.services.realtime_notifier import (
+    notify_posting_started,
+    notify_posting_progress,
+    notify_posting_completed,
+    notify_posting_error,
+)
 
 executor = concurrent.futures.ThreadPoolExecutor(max_workers=4)
 
@@ -31,6 +42,7 @@ FLOW_TOOLS = [
     register_content_link,
     get_conversation_assets,
     suggest_caption_hashtags,
+    parse_scheduled_datetime,
     get_connected_platforms,
     get_user_posts,
 ]
@@ -93,6 +105,7 @@ def run_chat_turn(
     suggested_hashtags: Optional[List[str]],
     pending_platforms: Optional[List[str]],
     last_error: Optional[str],
+    scheduled_at: Optional[datetime] = None,
 ) -> str:
     """Run one chat turn. Updates state via DB. Returns assistant reply."""
 
@@ -160,6 +173,15 @@ def run_chat_turn(
 
     if stage == "prepare_and_confirm" and pending_asset_id and suggested_caption is not None:
         if user_confirmed_posting(message, last_assistant):
+            # Extract scheduled_at from message if not provided and user mentions scheduling
+            extracted_scheduled_at = scheduled_at
+            if not extracted_scheduled_at:
+                # Try to parse datetime from user message using helper function
+                try:
+                    extracted_scheduled_at = _parse_datetime_from_text(message)
+                except Exception:
+                    pass
+            
             async def _resolve(session):
                 a = await get_asset(session, pending_asset_id, tenant_id)
                 return a
@@ -198,6 +220,76 @@ def run_chat_turn(
             platforms = pending_platforms or ["tiktok"]
             hashtags = suggested_hashtags or []
             caption = (suggested_caption or "")[:150]
+            platform = platforms[0] if platforms else "tiktok"
+
+            # Check if this is a scheduled post
+            now = datetime.now(timezone.utc)
+            is_scheduled = extracted_scheduled_at is not None and extracted_scheduled_at > now
+
+            if is_scheduled:
+                # Create scheduled post record
+                async def _create_scheduled(session):
+                    post = await create_post(
+                        session,
+                        conversation_id=conversation_id,
+                        tenant_id=tenant_id,
+                        user_id=user_id,
+                        platform=platform,
+                        video_url=video_url,
+                        caption=caption,
+                        hashtags=hashtags,
+                        status="scheduled",
+                        scheduled_at=extracted_scheduled_at
+                    )
+                    return post.id
+
+                try:
+                    post_id = _run_db(_create_scheduled)
+                    async def _success(session):
+                        await update_conversation_state(
+                            session, conversation_id, tenant_id,
+                            stage="success",
+                            last_error=None,
+                        )
+                    _run_db(_success)
+                    
+                    # Format scheduled time for user
+                    scheduled_str = extracted_scheduled_at.strftime("%Y-%m-%d %H:%M:%S UTC")
+                    agent = create_concierge_agent(FLOW_TOOLS)
+                    task = (
+                        f"The user's post has been scheduled for {scheduled_str}. "
+                        "Respond warmly, confirm the scheduled time, then ask how else you can help. Keep it brief and natural.\n\n"
+                        f"Recent context:\n{context}"
+                    )
+                    return _run_crew(agent, task, "A short, friendly confirmation of scheduled posting.")
+                except Exception as e:
+                    async def _fail(session):
+                        await update_conversation_state(
+                            session, conversation_id, tenant_id,
+                            stage="error",
+                            last_error=f"Failed to schedule post: {str(e)}",
+                        )
+                    _run_db(_fail)
+                    agent = create_concierge_agent(FLOW_TOOLS)
+                    task = (
+                        "Failed to schedule the post. Respond in a gentle, assistive way. "
+                        "Say you're here to help when they're ready to try again. Keep it brief.\n\n"
+                        f"Recent context:\n{context}"
+                    )
+                    return _run_crew(agent, task, "A brief, gentle message suggesting they try again.")
+
+            # Immediate posting
+            # Notify posting started (non-blocking)
+            try:
+                asyncio.run(notify_posting_started(tenant_id, conversation_id, platform, video_url))
+            except Exception:
+                pass
+
+            # Notify progress: uploading (non-blocking)
+            try:
+                asyncio.run(notify_posting_progress(tenant_id, conversation_id, platform, "uploading", "Uploading video to platform..."))
+            except Exception:
+                pass
 
             result = _run_post_sync(tenant_id, user_id, video_url, caption, hashtags, conversation_id)
 
@@ -210,6 +302,19 @@ def run_chat_turn(
                     )
 
                 _run_db(_success)
+                
+                # Notify posting completed (non-blocking)
+                try:
+                    asyncio.run(notify_posting_completed(
+                        tenant_id,
+                        conversation_id,
+                        platform,
+                        result.get("post_id", ""),
+                        result.get("publish_id")
+                    ))
+                except Exception:
+                    pass
+                
                 agent = create_concierge_agent(FLOW_TOOLS)
                 task = (
                     "The user's post was successfully published to TikTok. "
@@ -219,6 +324,18 @@ def run_chat_turn(
                 return _run_crew(agent, task, "A short, friendly confirmation and offer to help further.")
 
             err = result.get("error") or "Posting failed."
+
+            # Notify posting error (non-blocking)
+            try:
+                asyncio.run(notify_posting_error(
+                    tenant_id,
+                    conversation_id,
+                    platform,
+                    err,
+                    result.get("error_details")
+                ))
+            except Exception:
+                pass
 
             async def _fail(session):
                 await update_conversation_state(
@@ -247,8 +364,9 @@ def run_chat_turn(
         inst = (
             "We have content. Use suggest_caption_hashtags to propose a caption and hashtags, then present them to the user. "
             "Ask for feedback and revise if needed. When they're happy, use get_connected_platforms, then clearly ask "
-            "if they want you to post to their TikTok account. Wait for their confirmation; do not post yourself. "
-            "If they don't confirm, continue the conversation naturally and ask again when appropriate. Be natural and friendly."
+            "if they want you to post to their TikTok account. You can also ask if they want to post now or schedule for later. "
+            "If they want to schedule, ask for a specific date and time (e.g., 'tomorrow at 3pm', 'December 25th at 2:30pm UTC'). "
+            "Wait for their confirmation; do not post yourself. If they don't confirm, continue the conversation naturally and ask again when appropriate. Be natural and friendly."
         )
 
     agent = create_concierge_agent(FLOW_TOOLS)

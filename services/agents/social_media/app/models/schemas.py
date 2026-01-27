@@ -11,6 +11,7 @@ class ChatRequest(BaseModel):
     message: str = Field(..., description="User's message")
     conversation_id: Optional[str] = Field(None, description="Conversation ID (optional)")
     asset_id: Optional[str] = Field(None, description="Asset ID if user just uploaded via /v1/upload")
+    scheduled_at: Optional[str] = Field(None, description="ISO datetime string for scheduled posting (optional, e.g. '2024-12-25T14:30:00Z')")
     
     class Config:
         json_schema_extra = {
@@ -27,6 +28,11 @@ class ChatResponse(BaseModel):
     action_taken: Optional[str] = Field(None, description="Action performed")
     post_ids: Optional[List[str]] = Field(None, description="Post IDs if video(s) were posted")
     conversation_id: Optional[str] = Field(None, description="Conversation ID")
+    post_status: Optional[str] = Field(None, description="Post status: 'posted', 'scheduled', 'failed', 'processing'")
+    platform_post_id: Optional[str] = Field(None, description="Platform-specific post ID (publish_id)")
+    post_url: Optional[str] = Field(None, description="URL to view the posted content on platform")
+    scheduled_at: Optional[str] = Field(None, description="ISO datetime string if post was scheduled")
+    scheduled_post_id: Optional[str] = Field(None, description="Post ID for scheduled posts")
 
 
 class TokenRequest(BaseModel):

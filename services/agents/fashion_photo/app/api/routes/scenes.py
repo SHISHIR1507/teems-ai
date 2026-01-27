@@ -8,6 +8,10 @@ from app.core.auth import AuthenticatedUser, require_tenant
 from app.models.schemas import SceneSuggestionRequest, SceneSuggestionResponse
 from app.services.db_helpers import get_session, get_session_apparel, get_session_avatars
 from app.orchestrator.fashion_orchestrator import suggest_scenes_orchestrated
+from app.services.realtime_notifier import (
+    notify_scene_suggestion_started,
+    notify_scene_suggestion_completed,
+)
 from app.core.logging import get_logger
 
 router = APIRouter()
@@ -44,10 +48,21 @@ async def suggest_scenes(
         avatar_urls = [a.s3_url for a in avatars]
         visual_analysis = apparel[0].vision_analysis if apparel else None
         
+        # Notify scene suggestion started
+        await notify_scene_suggestion_started(tenant_id, session_id)
+        
         result = suggest_scenes_orchestrated(
             apparel_urls=apparel_urls,
             avatar_urls=avatar_urls,
             visual_analysis=visual_analysis,
+        )
+        
+        # Notify completion
+        scene_json = result.get("scene_json", {})
+        success = result.get("status") == "success"
+        error = None if success else result.get("message", "Scene suggestion failed")
+        await notify_scene_suggestion_completed(
+            tenant_id, session_id, scene_json, success=success, error=error
         )
         
         return SceneSuggestionResponse(

@@ -2,6 +2,21 @@
 Chat router - AI chat interface powered by CrewAI
 """
 from fastapi import APIRouter, HTTPException, Depends
+import sys
+from pathlib import Path
+
+# Add shared_libs to path for error standardization
+current_file = Path(__file__).resolve()
+shared_libs_dir = current_file.parent.parent.parent.parent.parent.parent / "platform" / "shared_libs"
+if str(shared_libs_dir) not in sys.path:
+    sys.path.insert(0, str(shared_libs_dir))
+
+try:
+    from pyshared.errors import raise_standard_error
+except ImportError:
+    # Fallback if shared libs not available
+    def raise_standard_error(status_code, message, detail=None, field=None):
+        raise HTTPException(status_code=status_code, detail=message)
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_db_session
 from app.core.auth import AuthenticatedUser, require_tenant
@@ -16,6 +31,7 @@ from app.services.db_helpers import (
     create_presentation,
     create_task
 )
+from app.services.realtime_notifier import notify_presentation_generation_started
 import uuid
 
 router = APIRouter()
@@ -105,14 +121,27 @@ async def chat(
                     conversation_id
                 )
                 
+                # Notify frontend that generation has started
+                await notify_presentation_generation_started(
+                    tenant_id=tenant_id,
+                    conversation_id=conversation_id,
+                    task_id=task_id,
+                    presentation_id=presentation.id,
+                    estimated_time_seconds=60
+                )
+                
                 assistant_message = result.get("message", "Presentation generation started!")
+                
+                # Build status URL for frontend to poll (relative path)
+                status_url = f"/v1/tasks/{task_id}/status"
                 
                 return ChatResponse(
                     message=assistant_message,
                     action_taken="presentation_generation_started",
                     task_id=task_id,
                     presentation_id=presentation.id,
-                    conversation_id=conversation_id
+                    conversation_id=conversation_id,
+                    status_url=status_url
                 )
             else:
                 # Generation failed or not started
@@ -134,5 +163,11 @@ async def chat(
                 conversation_id=conversation_id
             )
             
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise_standard_error(
+            status_code=500,
+            message="Internal server error",
+            detail=str(e)
+        )

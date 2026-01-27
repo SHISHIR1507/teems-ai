@@ -3,6 +3,7 @@ Flow-specific tools: content, caption/hashtag suggestions. No posting — orches
 """
 from crewai.tools import tool
 from typing import List, Optional
+from datetime import datetime, timezone
 import asyncio
 import json
 import re
@@ -19,6 +20,10 @@ from app.services.db_helpers import (
 from app.services.db_helpers import get_conversation_assets as _list_assets_db
 from app.core.config import get_settings
 from app.tools.vision_tools import analyze_content
+from app.services.realtime_notifier import (
+    notify_vision_analysis_started,
+    notify_vision_analysis_completed,
+)
 
 
 def _call_llm(prompt: str, system: str = "") -> str:
@@ -39,6 +44,36 @@ def _call_llm(prompt: str, system: str = "") -> str:
     if not choice:
         return ""
     return (choice[0].get("message") or {}).get("content") or ""
+
+
+def _parse_datetime_from_text(user_message: str, reference_time: Optional[datetime] = None) -> Optional[datetime]:
+    """
+    Helper function to parse datetime from natural language.
+    Returns datetime in UTC or None if not found/invalid.
+    """
+    try:
+        now = reference_time or datetime.now(timezone.utc)
+        
+        system = """You extract a specific datetime from the user's message. 
+If the user mentions scheduling (e.g., "tomorrow at 3pm", "next week", "December 25th at 2:30pm UTC"), 
+parse it to an ISO datetime string in UTC. If no clear datetime is mentioned, return empty string.
+Output ONLY the ISO datetime string (e.g., "2024-12-25T14:30:00Z") or empty string. No explanation."""
+
+        prompt = f"User message: {user_message}\nReference time: {now.isoformat()}\nExtract scheduled datetime in UTC. Output only ISO string or empty."
+        
+        raw = _call_llm(prompt, system)
+        raw = raw.strip().strip('"').strip("'")
+        
+        if not raw:
+            return None
+        
+        # Validate it's a valid ISO datetime
+        parsed = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+        if parsed <= now:
+            return None  # Must be in the future
+        return parsed
+    except Exception:
+        return None
 
 
 @tool
@@ -64,15 +99,9 @@ def register_content_link(
     if content_type not in ("image", "video"):
         content_type = "video"
     try:
-        # Analyze content with vision API
-        vision_analysis = None
-        try:
-            vision_analysis = analyze_content(url, asset_type=content_type)
-        except Exception:
-            pass
-
         async def _create(session):
             await get_or_create_conversation(session, conversation_id, tenant_id, None)
+            # Create asset first
             asset = await create_asset(
                 session=session,
                 conversation_id=conversation_id,
@@ -81,8 +110,23 @@ def register_content_link(
                 asset_type=content_type,
                 source="link",
                 external_url=url,
-                vision_analysis=vision_analysis,
             )
+            
+            # Notify vision analysis started
+            await notify_vision_analysis_started(tenant_id, conversation_id, asset.id, content_type)
+            
+            # Analyze content with vision API
+            vision_analysis = None
+            error_msg = None
+            try:
+                vision_analysis = analyze_content(url, asset_type=content_type)
+                asset.vision_analysis = vision_analysis
+                await session.flush()
+                await notify_vision_analysis_completed(tenant_id, conversation_id, asset.id, content_type, success=True)
+            except Exception as e:
+                error_msg = str(e)
+                await notify_vision_analysis_completed(tenant_id, conversation_id, asset.id, content_type, success=False, error=error_msg)
+            
             await update_conversation_state(
                 session, conversation_id, tenant_id,
                 stage="prepare_and_confirm",
@@ -216,3 +260,32 @@ No markdown, no explanation."""
         return json.dumps({"caption": caption, "hashtags": hashtags})
     except Exception as e:
         return json.dumps({"caption": "", "hashtags": [], "error": str(e)})
+
+
+@tool
+def parse_scheduled_datetime(user_message: str, reference_time: Optional[str] = None) -> str:
+    """
+    Parse a scheduled datetime from user's natural language message.
+    Use when the user mentions scheduling (e.g., "post tomorrow at 3pm", "schedule for next week").
+    
+    Args:
+        user_message: User's message containing datetime reference
+        reference_time: Optional reference time in ISO format (defaults to now)
+    
+    Returns:
+        ISO datetime string in UTC (e.g., "2024-12-25T14:30:00Z") or empty string if no valid datetime found
+    """
+    try:
+        ref_dt = None
+        if reference_time:
+            try:
+                ref_dt = datetime.fromisoformat(reference_time.replace('Z', '+00:00'))
+            except Exception:
+                pass
+        
+        parsed = _parse_datetime_from_text(user_message, ref_dt)
+        if parsed:
+            return parsed.strftime("%Y-%m-%dT%H:%M:%SZ")
+        return ""
+    except Exception:
+        return ""

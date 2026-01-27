@@ -123,7 +123,8 @@ class Post(Base):
     video_url = Column(Text, nullable=False)
     caption = Column(Text, nullable=True)
     hashtags = Column(Text, nullable=True)  # Comma-separated
-    status = Column(String(20), default="posted", nullable=False)  # posted, failed, processing
+    status = Column(String(20), default="posted", nullable=False)  # scheduled, pending, posted, failed, processing
+    scheduled_at = Column(DateTime(timezone=True), nullable=True, index=True)  # When to post (if scheduled)
     publish_id = Column(Text, nullable=True)  # Platform-specific publish ID
     extra = Column(JSON, nullable=True)  # Additional platform-specific data
     error = Column(Text, nullable=True)  # Error message if failed

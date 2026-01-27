@@ -6,7 +6,9 @@ Converts: (image + script) -> Veo-3.1 Image-to-Video output
 import base64
 import time
 import requests
-from typing import Type
+import asyncio
+import threading
+from typing import Type, Optional
 from pydantic import BaseModel, Field
 from crewai.tools import BaseTool
 from app.core.config import AIML_API_KEY
@@ -25,6 +27,14 @@ class Veo3VideoMakerInput(BaseModel):
     duration_seconds: int = Field(
         default=8,
         description="Desired video duration (default 8 seconds)"
+    )
+    tenant_id: Optional[str] = Field(
+        default=None,
+        description="Tenant ID for progress notifications (optional)"
+    )
+    conversation_id: Optional[str] = Field(
+        default=None,
+        description="Conversation ID for progress notifications (optional)"
     )
 
 
@@ -62,7 +72,14 @@ class Veo3VideoMakerTool(BaseTool):
         except Exception as e:
             raise Exception(f"Error reading local image file: {str(e)}")
 
-    def _run(self, image_reference: str, script_text: str, duration_seconds: int) -> str:
+    def _run(
+        self, 
+        image_reference: str, 
+        script_text: str, 
+        duration_seconds: int,
+        tenant_id: Optional[str] = None,
+        conversation_id: Optional[str] = None
+    ) -> str:
         """Generate Veo-3.1 video from image + script."""
 
         if not AIML_API_KEY:
@@ -111,9 +128,11 @@ class Veo3VideoMakerTool(BaseTool):
             
             print(f"Video generation started. ID: {generation_id}")
             
-            # Step 2: Poll for completion
+            # Step 2: Poll for completion with progress updates
             timeout = 300  # 5 minutes timeout
             start_time = time.time()
+            last_progress_update = 0
+            poll_count = 0
             
             while time.time() - start_time < timeout:
                 check_response = requests.get(
@@ -129,6 +148,44 @@ class Veo3VideoMakerTool(BaseTool):
                 status = result.get("status")
                 
                 print(f"Status: {status}")
+                
+                # Send progress update every 10 seconds if tenant_id and conversation_id are provided
+                elapsed = time.time() - start_time
+                if tenant_id and conversation_id and elapsed - last_progress_update >= 10:
+                    poll_count += 1
+                    last_progress_update = elapsed
+                    # Calculate progress: 70% base + up to 20% for polling (90% max before completion)
+                    progress = min(90, 70 + int((elapsed / timeout) * 20))
+                    
+                    # Send async notification (non-blocking, fire-and-forget using background thread)
+                    def send_notification():
+                        """Send notification in background thread"""
+                        try:
+                            from app.services.realtime_notifier import notify_job_progress
+                            # Create new event loop for this thread
+                            loop = asyncio.new_event_loop()
+                            asyncio.set_event_loop(loop)
+                            loop.run_until_complete(notify_job_progress(
+                                tenant_id,
+                                conversation_id,
+                                "video_generation",
+                                {
+                                    "step": "polling",
+                                    "progress": progress,
+                                    "elapsed_seconds": int(elapsed),
+                                    "status": status,
+                                    "poll_count": poll_count
+                                },
+                                f"Video generation in progress... ({status})"
+                            ))
+                            loop.close()
+                        except Exception as e:
+                            # Silently fail if notification doesn't work (non-critical)
+                            print(f"Note: Could not send progress update: {e}")
+                    
+                    # Start notification in background thread (non-blocking)
+                    thread = threading.Thread(target=send_notification, daemon=True)
+                    thread.start()
                 
                 if status == "completed":
                     video_url = result.get("video", {}).get("url")

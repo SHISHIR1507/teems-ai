@@ -1,6 +1,6 @@
 import json
 import requests
-from ..config import get_settings
+from ..core.config import get_settings
 
 settings = get_settings()
 AIML_API_URL = f"{settings.aiml_base_url}/chat/completions"
@@ -134,8 +134,13 @@ class LLMHost:
             "content": content
         })
     
-    def execute_tool_calls(self, tool_calls):
-        """Execute tool calls via MCP clients and return results"""
+    def execute_tool_calls(self, tool_calls, tenant_id: str = None):
+        """Execute tool calls via MCP clients and return results
+        
+        Args:
+            tool_calls: List of tool calls from LLM
+            tenant_id: Tenant ID from authenticated user (for PostgreSQL MCP queries)
+        """
         results = []
         
         for tool_call in tool_calls:
@@ -143,7 +148,12 @@ class LLMHost:
             tool_args = json.loads(tool_call["function"]["arguments"])
             tool_call_id = tool_call["id"]
             
-            print(f"   → Calling {tool_name} with args: {tool_args}")
+            # Inject tenant_id for PostgreSQL MCP tools
+            if tenant_id and tool_name == "query":
+                tool_args["tenant_id"] = tenant_id
+                print(f"   → Calling {tool_name} with tenant_id: {tenant_id}")
+            else:
+                print(f"   → Calling {tool_name} with args: {tool_args}")
             
             # Find which MCP client has this tool
             result = None

@@ -44,6 +44,7 @@ When you need something done, I recommend the right specialist:
 
 **Productivity Needs** → Recommend:
 - **Meeting Notetaker**: For meeting recording and notes
+- **Presentation Agent**: For creating and editing PowerPoint presentations
 
 **Marketing Needs** → Recommend:
 - **Social Media Manager**: For posting and optimization

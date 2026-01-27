@@ -121,7 +121,8 @@ async def create_post(
     hashtags: Optional[List[str]] = None,
     publish_id: Optional[str] = None,
     status: str = "posted",
-    extra: Optional[Dict[str, Any]] = None
+    extra: Optional[Dict[str, Any]] = None,
+    scheduled_at: Optional[datetime] = None
 ) -> Post:
     """Create a post record"""
     post = Post(
@@ -135,7 +136,8 @@ async def create_post(
         hashtags=",".join(hashtags) if hashtags else None,
         publish_id=publish_id,
         status=status,
-        extra=extra
+        extra=extra,
+        scheduled_at=scheduled_at
     )
     session.add(post)
     await session.flush()
@@ -168,6 +170,24 @@ async def get_tenant_posts(
     
     result = await session.execute(query)
     return list(result.scalars().all())
+
+
+async def get_recent_post_by_conversation(
+    session: AsyncSession,
+    conversation_id: str,
+    tenant_id: str
+) -> Optional[Post]:
+    """Get the most recent post for a conversation"""
+    result = await session.execute(
+        select(Post)
+        .where(
+            Post.conversation_id == conversation_id,
+            Post.tenant_id == tenant_id
+        )
+        .order_by(Post.created_at.desc())
+        .limit(1)
+    )
+    return result.scalar_one_or_none()
 
 
 async def verify_post_ownership(session: AsyncSession, post_id: str, tenant_id: str) -> bool:

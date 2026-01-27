@@ -55,12 +55,26 @@ You can use either the generic secret name or the service-specific name:
 - `LIPSYNC_API_KEY` or `UGC_VIDEO_LIPSYNC_API_KEY` (optional)
   - Sync API key for lipsync feature
 
+#### Auth0 Configuration (Required)
+- `AUTH0_DOMAIN` or `UGC_VIDEO_AUTH0_DOMAIN` (required)
+  - Your Auth0 domain (e.g., `your-tenant.auth0.com`)
+  - Already configured in your Auth0 account
+
+- `AUTH0_AUDIENCE` or `UGC_VIDEO_AUTH0_AUDIENCE` (required)
+  - Your Auth0 API audience identifier
+  - Already configured in your Auth0 account
+
+- `AUTH0_ALGORITHM` or `UGC_VIDEO_AUTH0_ALGORITHM` (optional)
+  - Default: `RS256`
+  - JWT signing algorithm
+
 #### CORS Configuration
 - `CORS_ALLOWED_ORIGINS` or `UGC_VIDEO_CORS_ALLOWED_ORIGINS` (optional)
-  - Comma-separated list of allowed CORS origins
-  - Example: `https://app.example.com, https://admin.example.com`
+  - Comma-separated list of allowed CORS origins (no wildcards allowed)
+  - Example: `https://app.example.com,https://admin.example.com`
   - If not set, defaults to localhost origins for development
   - Default includes: `http://localhost:3000`, `http://localhost:5173`, `https://teems-web-app.vercel.app`
+  - **Security**: Wildcards (`*`) are not allowed - specific origins must be listed
 
 #### SSL Certificate (Optional)
 - `SSL_CERTIFICATE_ARN` or `UGC_VIDEO_SSL_CERTIFICATE_ARN` (optional)
@@ -71,6 +85,23 @@ You can use either the generic secret name or the service-specific name:
 
 The ECS task role automatically has S3 permissions for the specified bucket. **No AWS credentials need to be passed as environment variables** - the service uses IAM roles.
 
+## 🔐 Authentication Setup
+
+The service requires Auth0 authentication. Ensure your Auth0 configuration includes:
+
+1. **API Configuration**: Create an API in Auth0 with:
+   - Identifier (audience): Set as `AUTH0_AUDIENCE` environment variable
+   - Signing Algorithm: RS256
+
+2. **Custom Claims**: Add custom claims to tokens:
+   - `https://teems.ai/tenant_id` (preferred) or `tenant_id` - Required for tenant isolation
+   - `https://teems.ai/roles` (optional) - For role-based access
+
+3. **Token Configuration**: Ensure tokens include:
+   - `aud` (audience) matching your API identifier
+   - `iss` (issuer) matching your Auth0 domain
+   - Custom `tenant_id` claim
+
 ## 📦 Deployment Process
 
 ### Automatic Deployment
@@ -79,6 +110,16 @@ Deployment triggers automatically on push to `main` branch when:
 - Files in `services/agents/ugc_video/` change
 - `infra/ecs-ugc-video-stack.yaml` changes
 - `.github/workflows/deploy-ugc-video-ecs.yml` changes
+
+### Database Migration
+
+Before deploying, run the tenant isolation migration:
+
+```bash
+python migrations/add_tenant_isolation_migration.py
+```
+
+This adds `tenant_id` and `user_id` columns to existing tables and sets default values for existing data.
 
 ### Manual Deployment
 
@@ -184,6 +225,21 @@ Expected response:
 - Verify `DATABASE_URL` uses `postgresql+asyncpg://` format
 - Ensure database allows connections from ECS security group
 - Check database credentials are correct
+- Run migration script if tenant_id columns are missing: `python migrations/add_tenant_isolation_migration.py`
+
+### Authentication Issues
+
+- Verify `AUTH0_DOMAIN` and `AUTH0_AUDIENCE` are set correctly
+- Check that Auth0 tokens include `tenant_id` claim
+- Ensure tokens are not expired
+- Verify API audience matches the token's `aud` claim
+
+### CORS Issues
+
+- Verify `CORS_ALLOWED_ORIGINS` includes your frontend domain
+- Check that origins are comma-separated (no spaces)
+- Ensure no wildcards (`*`) are used
+- Verify `allow_credentials=True` is set (required for authenticated requests)
 
 ### S3 Access Issues
 

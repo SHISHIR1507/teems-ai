@@ -95,11 +95,6 @@ def detect_domain(tools_used: list[str]) -> str:
     tool_domain_map = {
         "tavily": "internet",
         "search": "internet",
-        "mcp_meeting": "meeting",
-        "meeting": "meeting",
-        "list_meetings": "meeting",
-        "get_meeting": "meeting",
-        "ask_meeting": "meeting",
         "query": "database",
         "postgres": "database",
         "sql": "database",
@@ -202,3 +197,69 @@ def recommend_actions(
         )]
     
     return filtered_results if filtered_results else []
+
+
+async def recommend_actions_and_agents(
+    query: str,
+    tenant_id: str,
+    user_id: str,
+    auth_token: str,
+    recent_actions: list[str] = None,
+    tools_used: list[str] = None,
+    k_actions: int = 3,
+    k_agents: int = 2
+) -> list[RecommendationItem]:
+    """
+    Recommend both actions and agents based on conversation context.
+    
+    Args:
+        query: Combined user message + Eve's reply
+        tenant_id: Tenant ID from authenticated user
+        user_id: User ID (sub) from authenticated user
+        auth_token: Auth0 JWT token for authentication
+        recent_actions: List of recently clicked action IDs
+        tools_used: List of tool names used in the conversation
+        k_actions: Number of action recommendations to return
+        k_agents: Number of agent recommendations to return
+    
+    Returns:
+        Combined list of action and agent recommendations, sorted by score
+    """
+    from .agent_recommender import recommend_agents
+    
+    # Get action recommendations (sync)
+    action_recommendations = recommend_actions(
+        query=query,
+        recent_actions=recent_actions,
+        tools_used=tools_used,
+        k=k_actions,
+        threshold=0.20
+    )
+    
+    # Set click_action for action recommendations
+    for rec in action_recommendations:
+        rec.click_action = "chat_followup"
+        rec.type = "action"
+    
+    # Get agent recommendations (async)
+    try:
+        agent_recommendations = await recommend_agents(
+            query=query,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            auth_token=auth_token,
+            k=k_agents
+        )
+    except Exception as e:
+        # Log error but continue with action recommendations only
+        from loguru import logger
+        logger.warning(f"Failed to get agent recommendations: {e}")
+        agent_recommendations = []
+    
+    # Combine both lists
+    all_recommendations = list(action_recommendations) + list(agent_recommendations)
+    
+    # Sort by score (descending)
+    all_recommendations.sort(key=lambda x: x.score, reverse=True)
+    
+    return all_recommendations

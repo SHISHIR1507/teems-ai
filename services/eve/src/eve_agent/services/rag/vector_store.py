@@ -2,12 +2,13 @@
 Vector store operations for pgvector - storing and searching embeddings.
 """
 from typing import List, Dict, Any, Optional
-from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import text, select, delete
+from loguru import logger
 import uuid
 
 from .embedding import get_embedding_provider
-from ...config import get_settings
+from ...core.config import get_settings
 from ...models.document import DocumentChunk
 
 settings = get_settings()
@@ -21,7 +22,7 @@ class VectorStore:
     
     async def store_chunks(
         self,
-        db: Session,
+        db: AsyncSession,
         document_id: uuid.UUID,
         chunks: List[str],
         tenant_id: str,
@@ -31,7 +32,7 @@ class VectorStore:
         Store text chunks with their embeddings in the database.
         
         Args:
-            db: Database session
+            db: Database session (async)
             document_id: ID of the parent document
             chunks: List of text chunks
             tenant_id: Tenant ID for multi-tenancy
@@ -40,12 +41,12 @@ class VectorStore:
         Returns:
             List of chunk IDs
         """
-        print(f"📦 Generating embeddings for {len(chunks)} chunks...")
+        logger.info(f"📦 Generating embeddings for {len(chunks)} chunks...")
         
         # Generate embeddings for all chunks
         embeddings = await self.embedding_provider.embed(chunks)
         
-        print(f"✅ Generated {len(embeddings)} embeddings")
+        logger.info(f"✅ Generated {len(embeddings)} embeddings")
         
         # Store chunks with embeddings
         chunk_ids = []
@@ -62,14 +63,14 @@ class VectorStore:
             db.add(chunk)
             chunk_ids.append(chunk.id)
         
-        db.commit()
-        print(f"✅ Stored {len(chunk_ids)} chunks in database")
+        await db.flush()
+        logger.info(f"✅ Stored {len(chunk_ids)} chunks in database")
         
         return chunk_ids
     
     async def search_similar(
         self,
-        db: Session,
+        db: AsyncSession,
         query: str,
         tenant_id: str,
         top_k: int = 5,
@@ -79,7 +80,7 @@ class VectorStore:
         Search for similar chunks using vector similarity.
         
         Args:
-            db: Database session
+            db: Database session (async)
             query: Query text
             tenant_id: Tenant ID for filtering
             top_k: Number of results to return
@@ -88,7 +89,7 @@ class VectorStore:
         Returns:
             List of similar chunks with metadata and similarity scores
         """
-        print(f"🔍 Searching for similar chunks to: '{query[:50]}...'")
+        logger.info(f"🔍 Searching for similar chunks to: '{query[:50]}...'")
         
         # Generate embedding for query
         query_embedding = await self.embedding_provider.embed_one(query)
@@ -102,11 +103,11 @@ class VectorStore:
                 chunk_index,
                 content,
                 metadata,
-                1 - (embedding <=> :query_embedding) as similarity
-            FROM document_chunks
+                1 - (embedding <=> :query_embedding::vector) as similarity
+            FROM eve_document_chunks
             WHERE tenant_id = :tenant_id
             """ + ("AND document_id = :document_id" if document_id else "") + """
-            ORDER BY embedding <=> :query_embedding
+            ORDER BY embedding <=> :query_embedding::vector
             LIMIT :top_k
         """)
         
@@ -120,7 +121,7 @@ class VectorStore:
             params["document_id"] = str(document_id)
         
         # Execute search
-        result = db.execute(sql_query, params)
+        result = await db.execute(sql_query, params)
         rows = result.fetchall()
         
         # Format results
@@ -135,27 +136,29 @@ class VectorStore:
                 "similarity": float(row[5])
             })
         
-        print(f"✅ Found {len(results)} similar chunks")
+        logger.info(f"✅ Found {len(results)} similar chunks")
         
         return results
     
-    def delete_chunks(self, db: Session, document_id: uuid.UUID) -> int:
+    async def delete_chunks(self, db: AsyncSession, document_id: uuid.UUID) -> int:
         """
         Delete all chunks for a document.
         
         Args:
-            db: Database session
+            db: Database session (async)
             document_id: Document ID
         
         Returns:
             Number of chunks deleted
         """
-        count = db.query(DocumentChunk).filter(
-            DocumentChunk.document_id == document_id
-        ).delete()
-        
-        db.commit()
-        print(f"🗑️ Deleted {count} chunks for document {document_id}")
+        result = await db.execute(
+            delete(DocumentChunk).where(
+                DocumentChunk.document_id == document_id
+            )
+        )
+        await db.flush()
+        count = result.rowcount
+        logger.info(f"🗑️ Deleted {count} chunks for document {document_id}")
         
         return count
 

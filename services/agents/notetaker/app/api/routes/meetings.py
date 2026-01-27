@@ -2,6 +2,21 @@
 Meeting scheduling and chat endpoints
 """
 from fastapi import APIRouter, HTTPException, Depends, Query
+import sys
+from pathlib import Path
+
+# Add shared_libs to path for error standardization
+current_file = Path(__file__).resolve()
+shared_libs_dir = current_file.parent.parent.parent.parent.parent.parent / "platform" / "shared_libs"
+if str(shared_libs_dir) not in sys.path:
+    sys.path.insert(0, str(shared_libs_dir))
+
+try:
+    from pyshared.errors import raise_standard_error
+except ImportError:
+    # Fallback if shared libs not available
+    def raise_standard_error(status_code, message, detail=None, field=None):
+        raise HTTPException(status_code=status_code, detail=message)
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, timezone
 from typing import Optional
@@ -44,20 +59,50 @@ async def schedule_meeting(
         tenant_id = user.tenant_id
         user_id = user.sub
         
+        # Validate meeting link format
+        meeting_link = request.meeting_link.strip()
+        valid_domains = [
+            "zoom.us", "zoom.com",
+            "teams.microsoft.com", "teams.live.com",
+            "meet.google.com",
+            "webex.com", "cisco.com",
+            "gotomeeting.com",
+            "bluejeans.com"
+        ]
+        
+        is_valid_link = False
+        if meeting_link.startswith("http://") or meeting_link.startswith("https://"):
+            from urllib.parse import urlparse
+            parsed = urlparse(meeting_link)
+            domain = parsed.netloc.lower()
+            # Check if domain matches any valid meeting platform
+            is_valid_link = any(valid_domain in domain for valid_domain in valid_domains)
+        
+        if not is_valid_link:
+            raise_standard_error(
+                status_code=400,
+                message="Invalid meeting link format",
+                detail="Please provide a valid meeting URL from supported platforms (Zoom, Teams, Google Meet, Webex, etc.). Example: https://zoom.us/j/123456789",
+                field="meeting_link"
+            )
+        
         # Validate start_time format
         try:
             start_dt = datetime.fromisoformat(request.start_time.replace("Z", "+00:00"))
         except ValueError:
-            raise HTTPException(
+            raise_standard_error(
                 status_code=400,
-                detail="Invalid start_time format. Use ISO format (e.g., '2024-01-15T14:30:00Z')"
+                message="Invalid start_time format",
+                detail="Use ISO format (e.g., '2024-01-15T14:30:00Z')",
+                field="start_time"
             )
         
         # Ensure start_time is in the future
         if start_dt <= datetime.now(timezone.utc):
-            raise HTTPException(
+            raise_standard_error(
                 status_code=400,
-                detail="start_time must be in the future"
+                message="start_time must be in the future",
+                field="start_time"
             )
         
         # Create call record in database first
@@ -119,7 +164,10 @@ async def schedule_meeting(
             action_items=call.action_items,
             status=call.status,
             created_at=call.created_at.isoformat(),
-            updated_at=call.updated_at.isoformat()
+            updated_at=call.updated_at.isoformat(),
+            has_transcript=bool(call.transcript),
+            has_summary=bool(call.summary),
+            has_action_items=bool(call.action_items)
         )
         
         return ScheduleMeetingResponse(
@@ -134,7 +182,11 @@ async def schedule_meeting(
         raise
     except Exception as e:
         logger.error(f"Error scheduling meeting: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise_standard_error(
+            status_code=500,
+            message="Internal server error",
+            detail=str(e)
+        )
 
 
 @router.post("/v1/meetings/{call_id}/chat", response_model=ChatResponse, tags=["meetings"])
@@ -203,6 +255,12 @@ async def chat_about_meeting(
     
     except HTTPException:
         raise
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in chat endpoint: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise_standard_error(
+            status_code=500,
+            message="Internal server error",
+            detail=str(e)
+        )

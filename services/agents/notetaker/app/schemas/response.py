@@ -20,6 +20,9 @@ class CallResponse(BaseModel):
     status: str
     created_at: str
     updated_at: str
+    has_transcript: bool = Field(default=False, description="Whether transcript is available")
+    has_summary: bool = Field(default=False, description="Whether summary is available")
+    has_action_items: bool = Field(default=False, description="Whether action items are available")
 
 
 class ScheduleMeetingResponse(BaseModel):

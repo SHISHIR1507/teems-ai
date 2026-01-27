@@ -74,6 +74,7 @@ def load_agent_spec(agent_id: str) -> Dict:
         'category': metadata.get('category', 'general'),
         'status': metadata.get('status', 'available'),
         'ui_route': metadata.get('ui_route', f'/agents/{agent_id}'),
+        'agent_manager_id': metadata.get('agent_manager_id', '').strip(),
         'content': main_content,
         'full_text': content
     }

@@ -4,6 +4,7 @@ name: Fashion Photographer
 category: content_creation
 status: available
 ui_route: /agents/fashion-photographer
+agent_manager_id: <uuid-from-agent-manager>
 ---
 
 # Fashion Photographer Agent

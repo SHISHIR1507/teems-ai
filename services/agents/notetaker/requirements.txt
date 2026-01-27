@@ -27,6 +27,9 @@ google-api-python-client>=2.100.0
 # Background Tasks
 apscheduler>=3.10.0
 
+# Redis (for pub/sub notifications)
+redis>=5.0.0,<6.0.0
+
 # Encryption
 cryptography>=41.0.0
 

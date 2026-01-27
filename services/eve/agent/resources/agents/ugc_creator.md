@@ -4,6 +4,7 @@ name: UGC Creator
 category: content_creation
 status: available
 ui_route: /agents/ugc-creator
+agent_manager_id: <uuid-from-agent-manager>
 ---
 
 # UGC Creator Agent

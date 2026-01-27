@@ -16,6 +16,11 @@ from app.services.db_helpers import (
     update_user_settings
 )
 from app.services.encryption_service import encryption_service
+from app.services.notification_service import (
+    notify_calendar_sync_started,
+    notify_calendar_sync_completed,
+    notify_calendar_sync_failed
+)
 from app.orchestrator.meeting_orchestrator import sync_and_detect_meetings
 
 logger = logging.getLogger(__name__)
@@ -122,10 +127,14 @@ async def sync_calendar(
     Manually trigger calendar sync.
     
     Uses CrewAI orchestrator to sync calendar and detect meetings.
+    Publishes notifications for sync start/completion.
     """
     try:
         tenant_id = user.tenant_id
         user_id = user.sub
+        
+        # Notify sync started
+        await notify_calendar_sync_started(tenant_id, user_id)
         
         # Use orchestrator (runs in thread pool)
         import asyncio
@@ -138,10 +147,39 @@ async def sync_calendar(
             None  # Let orchestrator create its own session
         )
         
+        # Notify sync completed or failed
+        if result.get("success"):
+            # Parse result to get sync count
+            try:
+                import json
+                message = result.get("message", "")
+                # Try to extract synced count from message
+                synced_count = 0
+                events_with_meetings = 0
+                # The message might contain JSON, try to parse it
+                if "synced" in message.lower():
+                    # Extract numbers from message
+                    import re
+                    match = re.search(r'synced[:\s]+(\d+)', message, re.IGNORECASE)
+                    if match:
+                        synced_count = int(match.group(1))
+                
+                await notify_calendar_sync_completed(tenant_id, user_id, synced_count, events_with_meetings)
+            except Exception as e:
+                logger.warning(f"Could not parse sync result for notification: {e}")
+                await notify_calendar_sync_completed(tenant_id, user_id, 0, 0)
+        else:
+            await notify_calendar_sync_failed(tenant_id, user_id, result.get("message", "Unknown error"))
+        
         return result
     
     except Exception as e:
         logger.error(f"Error syncing calendar: {e}", exc_info=True)
+        # Notify failure
+        try:
+            await notify_calendar_sync_failed(user.tenant_id, user.sub, str(e))
+        except:
+            pass
         raise HTTPException(status_code=500, detail=str(e))
 
 

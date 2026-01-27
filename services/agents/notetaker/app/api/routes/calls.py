@@ -2,6 +2,21 @@
 Call management endpoints
 """
 from fastapi import APIRouter, HTTPException, Depends, Query
+import sys
+from pathlib import Path
+
+# Add shared_libs to path for error standardization
+current_file = Path(__file__).resolve()
+shared_libs_dir = current_file.parent.parent.parent.parent.parent.parent / "platform" / "shared_libs"
+if str(shared_libs_dir) not in sys.path:
+    sys.path.insert(0, str(shared_libs_dir))
+
+try:
+    from pyshared.errors import raise_standard_error
+except ImportError:
+    # Fallback if shared libs not available
+    def raise_standard_error(status_code, message, detail=None, field=None):
+        raise HTTPException(status_code=status_code, detail=message)
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
@@ -58,7 +73,10 @@ async def list_calls(
                 action_items=call.action_items,
                 status=call.status,
                 created_at=call.created_at.isoformat(),
-                updated_at=call.updated_at.isoformat()
+                updated_at=call.updated_at.isoformat(),
+                has_transcript=bool(call.transcript),
+                has_summary=bool(call.summary),
+                has_action_items=bool(call.action_items)
             )
             for call in calls
         ]
@@ -74,7 +92,11 @@ async def list_calls(
         raise
     except Exception as e:
         logger.error(f"Error listing calls: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise_standard_error(
+            status_code=500,
+            message="Internal server error",
+            detail=str(e)
+        )
 
 
 @router.get("/v1/calls/{call_id}", response_model=CallResponse, tags=["calls"])
@@ -95,7 +117,11 @@ async def get_call_details(
         call = await get_call(session, call_id, tenant_id)
         
         if not call:
-            raise HTTPException(status_code=404, detail="Call not found")
+            raise_standard_error(
+                status_code=404,
+                message="Call not found",
+                detail=f"Call with ID '{call_id}' not found for this tenant"
+            )
         
         return CallResponse(
             id=call.id,
@@ -110,14 +136,21 @@ async def get_call_details(
             action_items=call.action_items,
             status=call.status,
             created_at=call.created_at.isoformat(),
-            updated_at=call.updated_at.isoformat()
+            updated_at=call.updated_at.isoformat(),
+            has_transcript=bool(call.transcript),
+            has_summary=bool(call.summary),
+            has_action_items=bool(call.action_items)
         )
     
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error getting call details: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise_standard_error(
+            status_code=500,
+            message="Internal server error",
+            detail=str(e)
+        )
 
 
 @router.delete("/v1/calls/{call_id}", tags=["calls"])
@@ -138,7 +171,11 @@ async def delete_call_endpoint(
         deleted = await delete_call(session, call_id, tenant_id)
         
         if not deleted:
-            raise HTTPException(status_code=404, detail="Call not found")
+            raise_standard_error(
+                status_code=404,
+                message="Call not found",
+                detail=f"Call with ID '{call_id}' not found for this tenant"
+            )
         
         return {"success": True, "message": "Call deleted successfully"}
     
@@ -146,7 +183,11 @@ async def delete_call_endpoint(
         raise
     except Exception as e:
         logger.error(f"Error deleting call: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise_standard_error(
+            status_code=500,
+            message="Internal server error",
+            detail=str(e)
+        )
 
 
 @router.get("/v1/calls/{call_id}/transcript", tags=["calls"])
@@ -166,11 +207,16 @@ async def get_transcript(
         call = await get_call(session, call_id, tenant_id)
         
         if not call:
-            raise HTTPException(status_code=404, detail="Call not found")
+            raise_standard_error(
+                status_code=404,
+                message="Call not found",
+                detail=f"Call with ID '{call_id}' not found for this tenant"
+            )
         
         if not call.transcript:
-            raise HTTPException(
+            raise_standard_error(
                 status_code=404,
+                message="Transcript not available",
                 detail="Transcript not available. The meeting may still be processing."
             )
         
@@ -180,7 +226,11 @@ async def get_transcript(
         raise
     except Exception as e:
         logger.error(f"Error getting transcript: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise_standard_error(
+            status_code=500,
+            message="Internal server error",
+            detail=str(e)
+        )
 
 
 @router.get("/v1/calls/{call_id}/summary", tags=["calls"])
@@ -200,11 +250,16 @@ async def get_summary(
         call = await get_call(session, call_id, tenant_id)
         
         if not call:
-            raise HTTPException(status_code=404, detail="Call not found")
+            raise_standard_error(
+                status_code=404,
+                message="Call not found",
+                detail=f"Call with ID '{call_id}' not found for this tenant"
+            )
         
         if not call.summary:
-            raise HTTPException(
+            raise_standard_error(
                 status_code=404,
+                message="Summary not available",
                 detail="Summary not available. The meeting may still be processing."
             )
         
@@ -214,7 +269,11 @@ async def get_summary(
         raise
     except Exception as e:
         logger.error(f"Error getting summary: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise_standard_error(
+            status_code=500,
+            message="Internal server error",
+            detail=str(e)
+        )
 
 
 @router.get("/v1/calls/{call_id}/action-items", tags=["calls"])
@@ -234,11 +293,16 @@ async def get_action_items(
         call = await get_call(session, call_id, tenant_id)
         
         if not call:
-            raise HTTPException(status_code=404, detail="Call not found")
+            raise_standard_error(
+                status_code=404,
+                message="Call not found",
+                detail=f"Call with ID '{call_id}' not found for this tenant"
+            )
         
         if not call.action_items:
-            raise HTTPException(
+            raise_standard_error(
                 status_code=404,
+                message="Action items not available",
                 detail="Action items not available. The meeting may still be processing."
             )
         
@@ -248,4 +312,8 @@ async def get_action_items(
         raise
     except Exception as e:
         logger.error(f"Error getting action items: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        raise_standard_error(
+            status_code=500,
+            message="Internal server error",
+            detail=str(e)
+        )

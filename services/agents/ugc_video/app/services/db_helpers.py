@@ -1,5 +1,5 @@
 """
-Database helper functions for CRUD operations
+Database helper functions with tenant isolation
 """
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,9 +8,26 @@ from typing import Optional, List, Dict
 from datetime import datetime
 
 
+async def get_conversation(
+    session: AsyncSession, 
+    conversation_id: str, 
+    tenant_id: str
+) -> Optional[Conversation]:
+    """Get conversation by ID with tenant verification"""
+    result = await session.execute(
+        select(Conversation).where(
+            Conversation.id == conversation_id,
+            Conversation.tenant_id == tenant_id
+        )
+    )
+    return result.scalar_one_or_none()
+
+
 async def create_conversation(
     session: AsyncSession,
     conversation_id: str,
+    tenant_id: str,
+    user_id: Optional[str] = None,
     brand_industry: Optional[str] = None,
     brand_audience: Optional[str] = None,
     brand_vibe: Optional[str] = None,
@@ -19,65 +36,97 @@ async def create_conversation(
     """Create a new conversation"""
     conversation = Conversation(
         id=conversation_id,
+        tenant_id=tenant_id,
+        user_id=user_id,
         brand_industry=brand_industry,
         brand_audience=brand_audience,
         brand_vibe=brand_vibe,
         brand_locked=brand_locked
     )
     session.add(conversation)
-    await session.commit()
-    await session.refresh(conversation)
+    await session.flush()
     return conversation
 
 
-async def get_conversation(session: AsyncSession, conversation_id: str) -> Optional[Conversation]:
-    """Get conversation by ID"""
-    result = await session.execute(
-        select(Conversation).where(Conversation.id == conversation_id)
-    )
-    return result.scalar_one_or_none()
+async def get_or_create_conversation(
+    session: AsyncSession,
+    conversation_id: str,
+    tenant_id: str,
+    user_id: Optional[str] = None
+) -> Conversation:
+    """Get or create conversation"""
+    conversation = await get_conversation(session, conversation_id, tenant_id)
+    if not conversation:
+        conversation = await create_conversation(
+            session, conversation_id, tenant_id, user_id
+        )
+    return conversation
+
+
+async def verify_conversation_ownership(
+    session: AsyncSession, 
+    conversation_id: str, 
+    tenant_id: str
+) -> bool:
+    """Verify that conversation belongs to tenant"""
+    conversation = await get_conversation(session, conversation_id, tenant_id)
+    return conversation is not None
 
 
 async def update_conversation_brand(
     session: AsyncSession,
     conversation_id: str,
+    tenant_id: str,
     industry: str,
     audience: str,
     vibe: str
 ) -> Optional[Conversation]:
-    """Update conversation brand context"""
-    conversation = await get_conversation(session, conversation_id)
+    """Update conversation brand context with tenant verification"""
+    conversation = await get_conversation(session, conversation_id, tenant_id)
     if conversation:
         conversation.brand_industry = industry
         conversation.brand_audience = audience
         conversation.brand_vibe = vibe
         conversation.brand_locked = True
         conversation.updated_at = datetime.utcnow()
-        await session.commit()
-        await session.refresh(conversation)
+        await session.flush()
     return conversation
 
 
 async def add_message(
     session: AsyncSession,
     conversation_id: str,
+    tenant_id: str,
     role: str,
     content: str
 ) -> Message:
-    """Add a message to conversation"""
+    """Add a message to conversation with tenant verification"""
+    # Verify conversation ownership
+    conversation = await get_conversation(session, conversation_id, tenant_id)
+    if not conversation:
+        raise ValueError(f"Conversation {conversation_id} not found or access denied")
+    
     message = Message(
         conversation_id=conversation_id,
         role=role,
         content=content
     )
     session.add(message)
-    await session.commit()
-    await session.refresh(message)
+    await session.flush()
     return message
 
 
-async def get_messages(session: AsyncSession, conversation_id: str) -> List[Message]:
-    """Get all messages for a conversation"""
+async def get_messages(
+    session: AsyncSession, 
+    conversation_id: str, 
+    tenant_id: str
+) -> List[Message]:
+    """Get all messages for a conversation with tenant verification"""
+    # Verify conversation ownership first
+    conversation = await get_conversation(session, conversation_id, tenant_id)
+    if not conversation:
+        return []
+    
     result = await session.execute(
         select(Message)
         .where(Message.conversation_id == conversation_id)
@@ -89,32 +138,49 @@ async def get_messages(session: AsyncSession, conversation_id: str) -> List[Mess
 async def add_asset(
     session: AsyncSession,
     conversation_id: str,
+    tenant_id: str,
+    user_id: Optional[str],
     asset_type: str,
     url: str,
     filename: Optional[str] = None,
     metadata: Optional[Dict] = None
 ) -> Asset:
-    """Add an asset to conversation"""
+    """Add an asset to conversation with tenant verification"""
+    # Verify conversation ownership
+    conversation = await get_conversation(session, conversation_id, tenant_id)
+    if not conversation:
+        raise ValueError(f"Conversation {conversation_id} not found or access denied")
+    
     asset = Asset(
         conversation_id=conversation_id,
+        tenant_id=tenant_id,
+        user_id=user_id,
         asset_type=asset_type,
         url=url,
         filename=filename,
-        asset_metadata=metadata  # Use asset_metadata instead of metadata
+        asset_metadata=metadata
     )
     session.add(asset)
-    await session.commit()
-    await session.refresh(asset)
+    await session.flush()
     return asset
 
 
 async def get_assets(
     session: AsyncSession,
     conversation_id: str,
+    tenant_id: str,
     asset_type: Optional[str] = None
 ) -> List[Asset]:
-    """Get assets for a conversation, optionally filtered by type"""
-    query = select(Asset).where(Asset.conversation_id == conversation_id)
+    """Get assets for a conversation with tenant verification, optionally filtered by type"""
+    # Verify conversation ownership first
+    conversation = await get_conversation(session, conversation_id, tenant_id)
+    if not conversation:
+        return []
+    
+    query = select(Asset).where(
+        Asset.conversation_id == conversation_id,
+        Asset.tenant_id == tenant_id
+    )
     if asset_type:
         query = query.where(Asset.asset_type == asset_type)
     query = query.order_by(Asset.created_at)
@@ -123,26 +189,88 @@ async def get_assets(
     return result.scalars().all()
 
 
-async def delete_conversation(session: AsyncSession, conversation_id: str) -> bool:
-    """Delete a conversation and all related data"""
+async def get_tenant_assets(
+    session: AsyncSession,
+    tenant_id: str,
+    limit: int = 100,
+    offset: int = 0,
+    asset_type: Optional[str] = None
+) -> List[Asset]:
+    """Get assets for a tenant with pagination"""
+    query = select(Asset).where(Asset.tenant_id == tenant_id)
+    if asset_type:
+        query = query.where(Asset.asset_type == asset_type)
+    query = query.order_by(Asset.created_at.desc()).limit(limit).offset(offset)
+    
+    result = await session.execute(query)
+    return result.scalars().all()
+
+
+async def verify_asset_ownership(
+    session: AsyncSession,
+    asset_id: int,
+    tenant_id: str
+) -> bool:
+    """Verify that asset belongs to tenant"""
     result = await session.execute(
-        delete(Conversation).where(Conversation.id == conversation_id)
+        select(Asset).where(
+            Asset.id == asset_id,
+            Asset.tenant_id == tenant_id
+        )
     )
-    await session.commit()
+    return result.scalar_one_or_none() is not None
+
+
+async def delete_conversation(
+    session: AsyncSession, 
+    conversation_id: str, 
+    tenant_id: str
+) -> bool:
+    """Delete a conversation and all related data with tenant verification"""
+    result = await session.execute(
+        delete(Conversation).where(
+            Conversation.id == conversation_id,
+            Conversation.tenant_id == tenant_id
+        )
+    )
+    await session.flush()
     return result.rowcount > 0
 
 
-async def get_conversation_with_data(session: AsyncSession, conversation_id: str) -> Optional[Dict]:
-    """Get conversation with all messages and assets"""
-    conversation = await get_conversation(session, conversation_id)
+async def get_tenant_conversations(
+    session: AsyncSession,
+    tenant_id: str,
+    limit: int = 100,
+    offset: int = 0
+) -> List[Conversation]:
+    """Get conversations for a tenant with pagination"""
+    result = await session.execute(
+        select(Conversation)
+        .where(Conversation.tenant_id == tenant_id)
+        .order_by(Conversation.updated_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
+    return result.scalars().all()
+
+
+async def get_conversation_with_data(
+    session: AsyncSession, 
+    conversation_id: str, 
+    tenant_id: str
+) -> Optional[Dict]:
+    """Get conversation with all messages and assets with tenant verification"""
+    conversation = await get_conversation(session, conversation_id, tenant_id)
     if not conversation:
         return None
     
-    messages = await get_messages(session, conversation_id)
-    assets = await get_assets(session, conversation_id)
+    messages = await get_messages(session, conversation_id, tenant_id)
+    assets = await get_assets(session, conversation_id, tenant_id)
     
     return {
         "conversation_id": conversation.id,
+        "tenant_id": conversation.tenant_id,
+        "user_id": conversation.user_id,
         "brand": {
             "industry": conversation.brand_industry,
             "audience": conversation.brand_audience,
@@ -159,10 +287,11 @@ async def get_conversation_with_data(session: AsyncSession, conversation_id: str
         ],
         "assets": [
             {
+                "id": asset.id,
                 "type": asset.asset_type,
                 "url": asset.url,
                 "filename": asset.filename,
-                "metadata": asset.asset_metadata,  # Use asset_metadata
+                "metadata": asset.asset_metadata,
                 "created_at": asset.created_at.isoformat()
             }
             for asset in assets

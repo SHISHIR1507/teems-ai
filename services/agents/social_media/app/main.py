@@ -100,6 +100,9 @@ from app.api.routes import (
 )
 
 
+from app.services.scheduler_service import start_scheduler, stop_scheduler
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     try:
@@ -108,7 +111,23 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️  Database initialization failed: {e}")
         print("⚠️  API will start but database operations may fail")
+    
+    # Start background scheduler for scheduled posts
+    try:
+        start_scheduler()
+        print("✅ Background scheduler started for scheduled posts")
+    except Exception as e:
+        print(f"⚠️  Scheduler initialization failed: {e}")
+        print("⚠️  Scheduled posting will not work until scheduler is available")
+    
     yield
+    
+    # Stop scheduler on shutdown
+    try:
+        stop_scheduler()
+        print("✅ Background scheduler stopped")
+    except Exception as e:
+        print(f"⚠️  Error stopping scheduler: {e}")
 
 
 app = FastAPI(

@@ -5,6 +5,21 @@ import re
 import uuid as _uuid
 import requests
 from fastapi import APIRouter, HTTPException, Depends
+import sys
+from pathlib import Path
+
+# Add shared_libs to path for error standardization
+current_file = Path(__file__).resolve()
+shared_libs_dir = current_file.parent.parent.parent.parent.parent.parent / "platform" / "shared_libs"
+if str(shared_libs_dir) not in sys.path:
+    sys.path.insert(0, str(shared_libs_dir))
+
+try:
+    from pyshared.errors import raise_standard_error
+except ImportError:
+    # Fallback if shared libs not available
+    def raise_standard_error(status_code, message, detail=None, field=None):
+        raise HTTPException(status_code=status_code, detail=message)
 from sqlalchemy.ext.asyncio import AsyncSession
 from langsmith.run_helpers import get_current_run_tree
 from app.core.dependencies import get_db_session
@@ -25,6 +40,10 @@ from app.services.db_helpers import (
     create_generated_image,
 )
 from app.services.s3_service import upload_to_s3
+from app.services.realtime_notifier import (
+    notify_image_generation_started,
+    notify_image_generation_completed,
+)
 from app.tools.vision_tools import analyze_image
 from app.core.config import get_settings
 from app.core.logging import get_logger
@@ -64,6 +83,8 @@ async def chat(
                 session_id=session_id,
                 stage=fashion_session.stage,
                 run_id=run_id,
+                available_actions=["upload_apparel"],
+                next_steps=["Upload apparel images to get started"]
             )
 
         await add_message(db, session_id, "user", request.message)
@@ -117,6 +138,31 @@ async def chat(
         new_gen_urls = []
         batch_id = None
         known = set(avatar_urls + apparel_urls + generated_urls)
+        
+        # Check if we have temp gen URLs (image generation detected)
+        has_temp_gen = any(
+            "aimlapi" in url or "d144" in url or "generated" in url.lower()
+            for url in urls
+            if url not in known
+        )
+        
+        # Notify image generation started if we detect temp URLs
+        if has_temp_gen:
+            batch_id = str(_uuid.uuid4())
+            # Extract scene description from suggested_scene or use default
+            if suggested_scene and isinstance(suggested_scene, dict):
+                scene_desc = suggested_scene.get("scene_description", "Fashion photography scene")
+                angles_list = suggested_scene.get("angles", ["Front", "Side"])
+                angles_count = len(angles_list) if isinstance(angles_list, list) else 2
+                variations = suggested_scene.get("variations_per_angle", 2)
+                variations = variations if isinstance(variations, int) else 2
+            else:
+                scene_desc = "Fashion photography scene"
+                angles_count = 2
+                variations = 2
+            await notify_image_generation_started(
+                tenant_id, session_id, batch_id, scene_desc, angles_count, variations
+            )
 
         for url in urls:
             if url in known:
@@ -130,6 +176,14 @@ async def chat(
                 s3_key = s3_url.split("/")[-1]
                 if batch_id is None:
                     batch_id = str(_uuid.uuid4())
+                    # Late notification if batch_id wasn't set earlier
+                    if suggested_scene and isinstance(suggested_scene, dict):
+                        scene_desc = suggested_scene.get("scene_description", "Fashion photography scene")
+                    else:
+                        scene_desc = "Fashion photography scene"
+                    await notify_image_generation_started(
+                        tenant_id, session_id, batch_id, scene_desc, 2, 2
+                    )
                 await create_generated_image(
                     db, session_id, tenant_id,
                     s3_url, s3_key, user.sub,
@@ -147,11 +201,59 @@ async def chat(
                 db, session_id, tenant_id,
                 {"last_generation_batch_id": batch_id},
             )
+            # Notify completion
+            await notify_image_generation_completed(
+                tenant_id, session_id, batch_id, new_gen_urls, success=True
+            )
+        elif batch_id and not new_gen_urls:
+            # Generation started but failed
+            await notify_image_generation_completed(
+                tenant_id, session_id, batch_id, [], success=False,
+                error="Failed to generate or upload images"
+            )
         if new_gen_urls and fashion_session.stage not in ("GENERATION", "EDITING"):
             await update_session_stage(db, session_id, tenant_id, "GENERATION")
 
         await add_message(db, session_id, "assistant", output_text)
         fashion_session = await get_session(db, session_id, tenant_id)
+        
+        # Determine available actions based on stage
+        available_actions = []
+        next_steps = []
+        stage = fashion_session.stage
+        
+        if stage == "CONVERSATION" or stage == "APPAREL_SELECTION":
+            available_actions = ["upload_apparel"]
+            next_steps = ["Upload apparel images to get started"]
+        elif stage == "AVATAR_SELECTION":
+            available_actions = ["upload_avatar", "select_preset_avatar"]
+            next_steps = ["Upload or select an avatar"]
+        elif stage == "SCENE_SUGGESTION":
+            available_actions = ["suggest_scenes", "describe_scene"]
+            next_steps = ["Ask for scene suggestions or describe your desired scene"]
+        elif stage == "GENERATION":
+            available_actions = ["view_images", "edit_images", "regenerate"]
+            next_steps = ["Review generated images", "Request edits or regenerate"]
+        elif stage == "EDITING":
+            available_actions = ["view_images", "regenerate", "download"]
+            next_steps = ["Continue editing or download final images"]
+        
+        # Generation progress info if images are being generated
+        generation_progress = None
+        if has_temp_gen or batch_id:
+            if new_gen_urls:
+                generation_progress = {
+                    "status": "completed",
+                    "images_generated": len(new_gen_urls),
+                    "total_expected": len(new_gen_urls)
+                }
+            else:
+                generation_progress = {
+                    "status": "processing",
+                    "images_generated": 0,
+                    "total_expected": 4,  # Default expectation
+                    "estimated_time_seconds": 30
+                }
 
         return ChatResponse(
             message=output_text,
@@ -161,7 +263,16 @@ async def chat(
             image_urls=new_gen_urls if new_gen_urls else None,
             batch_id=batch_id,
             run_id=run_id,
+            available_actions=available_actions,
+            next_steps=next_steps,
+            generation_progress=generation_progress
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Chat error")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise_standard_error(
+            status_code=500,
+            message="Internal server error",
+            detail=str(e)
+        )

@@ -177,6 +177,9 @@ class ChatResponse(BaseModel):
     image_urls: Optional[List[str]] = Field(None, description="Generated image URLs if any")
     batch_id: Optional[str] = Field(None, description="Generation batch ID when images were created")
     run_id: Optional[str] = Field(None, description="LangSmith run ID")
+    available_actions: Optional[List[str]] = Field(None, description="Available user actions at current stage")
+    next_steps: Optional[List[str]] = Field(None, description="Suggested next steps")
+    generation_progress: Optional[Dict[str, Any]] = Field(None, description="Image generation progress if generating")
 
 
 # Upload Schemas

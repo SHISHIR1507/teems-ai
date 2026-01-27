@@ -4,6 +4,7 @@ name: Social Media Manager
 category: marketing
 status: available
 ui_route: /agents/social-media-manager
+agent_manager_id: <uuid-from-agent-manager>
 ---
 
 # Social Media Manager Agent

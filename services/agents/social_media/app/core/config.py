@@ -3,6 +3,7 @@ Application configuration and environment variables
 """
 import os
 from dotenv import load_dotenv
+from typing import Optional
 from pydantic_settings import BaseSettings
 from pydantic import Field
 from functools import lru_cache
@@ -42,6 +43,9 @@ class Settings(BaseSettings):
     auth0_domain: str = Field(..., alias="AUTH0_DOMAIN")
     auth0_audience: str = Field(..., alias="AUTH0_AUDIENCE")
     auth0_algorithm: str = Field(default="RS256", alias="AUTH0_ALGORITHM")
+    
+    # Redis Configuration (for realtime notifications)
+    redis_url: Optional[str] = Field(None, alias="REDIS_URL")
     
     class Config:
         env_file = ".env"

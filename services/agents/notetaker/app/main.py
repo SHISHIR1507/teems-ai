@@ -128,6 +128,7 @@ from app.api.routes import (
 # Import auto_join routes separately to avoid circular dependency
 from app.api.routes import auto_join
 from app.services.scheduler_service import start_scheduler, stop_scheduler
+from app.services.notification_service import close_redis
 
 app = FastAPI(
     title="Notetaker Agent API",
@@ -164,12 +165,18 @@ async def startup_event():
 
 @app.on_event("shutdown")
 async def shutdown_event():
-    """Stop background scheduler on shutdown"""
+    """Stop background scheduler and close Redis connection on shutdown"""
     try:
         stop_scheduler()
         logger.info("Background scheduler stopped")
     except Exception as e:
         logger.error(f"Error stopping scheduler: {e}")
+    
+    try:
+        await close_redis()
+        logger.info("Redis connection closed")
+    except Exception as e:
+        logger.error(f"Error closing Redis: {e}")
 
 
 if __name__ == "__main__":

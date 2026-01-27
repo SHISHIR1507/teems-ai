@@ -5,6 +5,8 @@ from crewai.tools import tool
 from typing import Dict, Any
 from datetime import datetime
 import pytz
+import json
+import logging
 from app.services.nylas_service import nylas_service
 from app.services.meeting_detection_service import meeting_detection_service
 from app.services.timezone_service import timezone_service
@@ -15,7 +17,6 @@ from app.services.db_helpers import (
     update_call
 )
 from app.tools.async_helper import run_async
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,7 @@ def join_meeting_via_nylas(
         calendar_event_id: Calendar event ID
         tenant_id: Tenant ID
         user_id: User ID
-        db_session: Database session
+        db_session: Optional database session (creates new if None)
     
     Returns:
         JSON string with join result: {"success": true, "notetaker_id": "...", "message": "..."}
@@ -70,86 +71,95 @@ def join_meeting_via_nylas(
     Never join meetings without proper validation.
     """
     try:
-        # Get calendar event
-        event = run_async(get_calendar_event(db_session, calendar_event_id, tenant_id))
-        if not event:
-            return '{"error": "Calendar event not found", "success": false}'
+        # Create session if not provided
+        if db_session is None:
+            from app.tools.async_helper import get_db_session_sync
+            db_session, loop = get_db_session_sync()
+            close_session = True
+        else:
+            close_session = False
+            loop = None
         
-        if not event.meeting_link:
-            return '{"error": "No meeting link in calendar event", "success": false}'
-        
-        # Check if already joined
-        if event.status in ["joined", "completed"]:
-            return f'{{"success": true, "message": "Meeting already joined", "notetaker_id": "{event.nylas_notetaker_id}"}}'
-        
-        # Validate meeting link
-        validation = meeting_detection_service.validate_meeting_link(event.meeting_link)
-        if not validation["is_valid"]:
-            return f'{{"error": "Invalid meeting link: {validation.get(\"error\")}", "success": false}}'
-        
-        # Format join time (exactly at start time)
-        join_time_iso = timezone_service.format_datetime_for_nylas(event.start_time)
-        
-        # Join via Nylas
-        nylas_response = nylas_service.join_meeting(
-            meeting_link=event.meeting_link,
-            join_time=join_time_iso,
-            name=event.title
-        )
-        
-        # Extract notetaker ID
-        notetaker_id = None
-        if isinstance(nylas_response, dict):
-            notetaker_id = nylas_response.get("data", {}).get("id")
-        
-        if not notetaker_id:
-            return '{"error": "Failed to get notetaker ID from Nylas", "success": false}'
-        
-        # Create or update call record
-        call = None
-        if event.call_id:
-            # Update existing call
-            from app.services.db_helpers import get_call
-            call = run_async(get_call(db_session, event.call_id, tenant_id))
-        
-        if not call:
-            # Create new call
-            call = run_async(create_call(
-                db_session,
-                tenant_id=tenant_id,
-                user_id=user_id,
-                title=event.title,
+        try:
+            # Get calendar event
+            event = run_async(get_calendar_event(db_session, calendar_event_id, tenant_id))
+            if not event:
+                return '{"error": "Calendar event not found", "success": false}'
+            
+            if not event.meeting_link:
+                return '{"error": "No meeting link in calendar event", "success": false}'
+            
+            # Check if already joined
+            if event.status in ["joined", "completed"]:
+                return f'{{"success": true, "message": "Meeting already joined", "notetaker_id": "{event.nylas_notetaker_id}"}}'
+            
+            # Validate meeting link
+            validation = meeting_detection_service.validate_meeting_link(event.meeting_link)
+            if not validation["is_valid"]:
+                return f'{{"error": "Invalid meeting link: {validation.get(\"error\")}", "success": false}}'
+            
+            # Format join time (exactly at start time)
+            join_time_iso = timezone_service.format_datetime_for_nylas(event.start_time)
+            
+            # Join via Nylas
+            nylas_response = nylas_service.join_meeting(
                 meeting_link=event.meeting_link,
-                start_time=event.start_time,
-                calendar_event_id=calendar_event_id
+                join_time=join_time_iso,
+                name=event.title
+            )
+            
+            # Extract notetaker ID
+            notetaker_id = None
+            if isinstance(nylas_response, dict):
+                notetaker_id = nylas_response.get("data", {}).get("id")
+            
+            if not notetaker_id:
+                return '{"error": "Failed to get notetaker ID from Nylas", "success": false}'
+            
+            # Create or update call record
+            call = None
+            if event.call_id:
+                # Update existing call
+                from app.services.db_helpers import get_call
+                call = run_async(get_call(db_session, event.call_id, tenant_id))
+            
+            if not call:
+                # Create new call
+                call = run_async(create_call(
+                    db_session,
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    title=event.title,
+                    meeting_link=event.meeting_link,
+                    start_time=event.start_time,
+                    calendar_event_id=calendar_event_id
+                ))
+            
+            # Update call with Nylas meeting ID
+            run_async(update_call(
+                db_session,
+                call.id,
+                tenant_id,
+                meeting_id=notetaker_id,
+                auto_joined=True,
+                join_attempted_at=datetime.utcnow(),
+                status="processing"
             ))
-        
-        # Update call with Nylas meeting ID
-        run_async(update_call(
-            db_session,
-            call.id,
-            tenant_id,
-            meeting_id=notetaker_id,
-            auto_joined=True,
-            join_attempted_at=datetime.utcnow(),
-            status="processing"
-        ))
-        
-        # Update calendar event
-        run_async(update_calendar_event(
-            db_session,
-            calendar_event_id,
-            tenant_id,
-            call_id=call.id,
-            nylas_notetaker_id=notetaker_id,
-            status="joined",
-            auto_join_attempted=True,
-            join_attempted_at=datetime.utcnow()
-        ))
-        
-        run_async(db_session.commit())
-        
-            import json
+            
+            # Update calendar event
+            run_async(update_calendar_event(
+                db_session,
+                calendar_event_id,
+                tenant_id,
+                call_id=call.id,
+                nylas_notetaker_id=notetaker_id,
+                status="joined",
+                auto_join_attempted=True,
+                join_attempted_at=datetime.utcnow()
+            ))
+            
+            run_async(db_session.commit())
+            
             return json.dumps({
                 "success": True,
                 "notetaker_id": notetaker_id,
@@ -188,7 +198,6 @@ def check_meeting_status(notetaker_id: str) -> str:
         if not status:
             return '{"error": "Failed to get notetaker status", "status": "unknown"}'
         
-        import json
         return json.dumps(status)
     
     except Exception as e:

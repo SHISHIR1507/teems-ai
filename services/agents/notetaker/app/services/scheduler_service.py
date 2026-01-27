@@ -18,6 +18,11 @@ from app.services.encryption_service import encryption_service
 from app.orchestrator.meeting_orchestrator import sync_and_detect_meetings, auto_join_meeting
 from app.services.nylas_service import nylas_service
 from app.services.timezone_service import timezone_service
+from app.services.notification_service import (
+    notify_meeting_join_started,
+    notify_meeting_join_completed,
+    notify_meeting_join_failed
+)
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +122,17 @@ async def check_and_join_meetings():
                             if not event.auto_join_attempted:
                                 logger.info(f"Auto-joining meeting: {event.title} for user {user_settings.user_id}")
                                 
+                                # Get call if exists for notification
+                                call_id = event.call_id or "pending"
+                                
+                                # Notify join started
+                                await notify_meeting_join_started(
+                                    user_settings.tenant_id,
+                                    call_id,
+                                    event.title,
+                                    event.start_time.isoformat() if event.start_time else ""
+                                )
+                                
                                 # Use orchestrator to join (runs in thread pool)
                                 import asyncio
                                 loop = asyncio.get_event_loop()
@@ -131,8 +147,44 @@ async def check_and_join_meetings():
                                 
                                 if result.get("success"):
                                     logger.info(f"Successfully auto-joined meeting: {event.title}")
+                                    # Get updated call_id from result if available
+                                    try:
+                                        import json
+                                        message = result.get("message", "")
+                                        if "call_id" in message.lower():
+                                            import re
+                                            match = re.search(r'call[_\s]*id[:\s]*["\']?([a-zA-Z0-9\-]+)', message, re.IGNORECASE)
+                                            if match:
+                                                call_id = match.group(1)
+                                    except:
+                                        pass
+                                    
+                                    # Extract notetaker_id
+                                    notetaker_id = ""
+                                    try:
+                                        import json
+                                        message = result.get("message", "")
+                                        if "notetaker_id" in message.lower():
+                                            import re
+                                            match = re.search(r'notetaker[_\s]*id[:\s]*["\']?([a-zA-Z0-9\-]+)', message, re.IGNORECASE)
+                                            if match:
+                                                notetaker_id = match.group(1)
+                                    except:
+                                        pass
+                                    
+                                    await notify_meeting_join_completed(
+                                        user_settings.tenant_id,
+                                        call_id,
+                                        notetaker_id,
+                                        event.title
+                                    )
                                 else:
                                     logger.error(f"Failed to auto-join meeting: {result.get('message')}")
+                                    await notify_meeting_join_failed(
+                                        user_settings.tenant_id,
+                                        call_id,
+                                        result.get('message', 'Unknown error')
+                                    )
                 
                 except Exception as e:
                     logger.error(f"Error processing user {user_settings.user_id}: {e}", exc_info=True)

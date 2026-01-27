@@ -160,7 +160,18 @@ async def get_current_user(
 
 
 def require_tenant():
-    """Dependency that enforces presence of tenant_id in the authenticated user"""
+    """
+    Dependency that enforces presence of tenant_id in the authenticated user.
+    
+    IMPORTANT: Token validation happens ONCE at request start via FastAPI dependency injection.
+    The token is validated when this dependency is resolved (before the route handler executes).
+    For long-running operations (e.g., post scheduling, video processing), the token is NOT
+    re-validated during execution. This allows operations to complete even if the token expires
+    mid-execution, as long as it was valid when the request started.
+    
+    This is the intended behavior to prevent long-running operations from failing due to token
+    expiration during execution.
+    """
 
     async def tenant_checker(user: AuthenticatedUser = Depends(get_current_user)):
         if not user.tenant_id:

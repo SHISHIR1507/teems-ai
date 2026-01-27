@@ -6,7 +6,7 @@ from typing import List, Dict, Any
 import os
 from pathlib import Path
 
-from .config import get_settings
+from .core.config import get_settings
 from .services.llm_host import LLMHost
 from .services.mcp_client import MCPClient
 
@@ -20,15 +20,11 @@ TAVILY_MCP_CONFIG = {
 }
 
 POSTGRES_MCP_CONFIG = {
-    "command": "npx",
-    "args": ["-y", "@modelcontextprotocol/server-postgres"],
-    "env": {},
-}
-
-MEETING_RAG_MCP_CONFIG = {
     "command": "python",
-    "args": ["../meeting_rag/mcp_server.py"],
-    "env": {"PYTHONPATH": "../meeting_rag"},
+    "args": ["../mcp/postgres_wrapper.py"],
+    "env": {
+        "PYTHONPATH": "..",
+    },
 }
 
 RAG_SYSTEM_MCP_CONFIG = {
@@ -42,7 +38,9 @@ _mcp_clients: List[MCPClient] = []
 _llm_host: LLMHost | None = None
 _all_tools: List[Dict[str, Any]] = []
 
-# Session storage (in production, use Redis)
+# Session storage for temporary data (recent_actions, tools_used)
+# Note: Conversation history is now stored in database (eve_conversations, eve_messages)
+# In production, consider using Redis for this temporary session data
 _user_sessions: Dict[str, Dict[str, Any]] = {}
 
 
@@ -94,14 +92,35 @@ def initialize_mcp_clients():
     except Exception as e:
         print(f"❌ Tavily failed: {e}")
     
-    # Initialize PostgreSQL
+    # Initialize PostgreSQL (custom wrapper with tenant isolation)
     print("📡 Connecting to PostgreSQL MCP server...")
     postgres_config = POSTGRES_MCP_CONFIG.copy()
-    postgres_config["args"] = [
-        "-y",
-        "@modelcontextprotocol/server-postgres",
-        settings.postgres_url.strip('"'),
-    ]
+    
+    # Build restricted connection URL using MCP role
+    from urllib.parse import urlparse, urlunparse, quote_plus
+    
+    parsed = urlparse(settings.postgres_url)
+    # Extract host:port from netloc (handle case where credentials are already in URL)
+    netloc_parts = parsed.netloc.split('@')
+    if len(netloc_parts) > 1:
+        # URL already has credentials, extract just the host:port
+        host_port = netloc_parts[-1]
+    else:
+        # No credentials in URL, use netloc as-is
+        host_port = parsed.netloc
+    
+    # Build new connection URL with MCP user credentials
+    restricted_url = urlunparse((
+        parsed.scheme,
+        f"{quote_plus(settings.postgres_mcp_user)}:{quote_plus(settings.postgres_mcp_password)}@{host_port}",
+        parsed.path,
+        parsed.params,
+        parsed.query,
+        parsed.fragment
+    ))
+    
+    # Set DATABASE_URL in environment for custom wrapper
+    postgres_config["env"]["DATABASE_URL"] = restricted_url
     
     postgres_client = MCPClient(
         server_command=postgres_config["command"],
@@ -117,23 +136,6 @@ def initialize_mcp_clients():
         print(f"✓ PostgreSQL connected ({len(postgres_tools)} tools)")
     except Exception as e:
         print(f"❌ PostgreSQL failed: {e}")
-    
-    # Initialize Meeting RAG
-    print("📡 Connecting to Meeting RAG MCP server...")
-    meeting_rag_client = MCPClient(
-        server_command=MEETING_RAG_MCP_CONFIG["command"],
-        server_args=MEETING_RAG_MCP_CONFIG["args"],
-        env=MEETING_RAG_MCP_CONFIG["env"],
-    )
-    
-    try:
-        meeting_rag_client.start()
-        meeting_rag_tools = meeting_rag_client.get_tools_for_llm()
-        _all_tools.extend(meeting_rag_tools)
-        _mcp_clients.append(meeting_rag_client)
-        print(f"✓ Meeting RAG connected ({len(meeting_rag_tools)} tools)")
-    except Exception as e:
-        print(f"❌ Meeting RAG failed: {e}")
     
     # Initialize RAG System (Knowledge Base)
     print("📡 Connecting to RAG System MCP server...")

@@ -2,6 +2,21 @@
 Presentation management endpoints
 """
 from fastapi import APIRouter, HTTPException, Depends, Query
+import sys
+from pathlib import Path
+
+# Add shared_libs to path for error standardization
+current_file = Path(__file__).resolve()
+shared_libs_dir = current_file.parent.parent.parent.parent.parent.parent / "platform" / "shared_libs"
+if str(shared_libs_dir) not in sys.path:
+    sys.path.insert(0, str(shared_libs_dir))
+
+try:
+    from pyshared.errors import raise_standard_error
+except ImportError:
+    # Fallback if shared libs not available
+    def raise_standard_error(status_code, message, detail=None, field=None):
+        raise HTTPException(status_code=status_code, detail=message)
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_db_session
 from app.core.auth import AuthenticatedUser, require_tenant
@@ -32,6 +47,18 @@ async def list_presentations(
         tenant_id = user.tenant_id
         presentations = await get_tenant_presentations(session, tenant_id, limit, offset)
         
+        # Helper to determine file format from s3_url or default
+        def get_file_format(s3_url: Optional[str]) -> Optional[str]:
+            if not s3_url:
+                return None
+            if s3_url.endswith('.pptx'):
+                return 'pptx'
+            elif s3_url.endswith('.pdf'):
+                return 'pdf'
+            elif s3_url.endswith('.ppt'):
+                return 'ppt'
+            return 'pptx'  # Default
+        
         return PresentationListResponse(
             presentations=[
                 PresentationResponse(
@@ -43,7 +70,10 @@ async def list_presentations(
                     s3_url=pres.s3_url,
                     slidespeak_presentation_id=pres.slidespeak_presentation_id,
                     created_at=pres.created_at.isoformat() if pres.created_at else "",
-                    updated_at=pres.updated_at.isoformat() if pres.updated_at else ""
+                    updated_at=pres.updated_at.isoformat() if pres.updated_at else "",
+                    is_downloadable=pres.status == "completed" and pres.s3_url is not None,
+                    file_size=None,  # Could be added to Presentation model if needed
+                    file_format=get_file_format(pres.s3_url)
                 )
                 for pres in presentations
             ],
@@ -51,8 +81,14 @@ async def list_presentations(
             limit=limit,
             offset=offset
         )
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise_standard_error(
+            status_code=500,
+            message="Internal server error",
+            detail=str(e)
+        )
 
 
 @router.get("/v1/presentations/{presentation_id}", response_model=PresentationResponse, tags=["presentations"])
@@ -66,7 +102,23 @@ async def get_presentation_details(
         tenant_id = user.tenant_id
         presentation = await get_presentation(session, presentation_id, tenant_id)
         if not presentation:
-            raise HTTPException(status_code=404, detail="Presentation not found")
+            raise_standard_error(
+                status_code=404,
+                message="Presentation not found",
+                detail=f"Presentation with ID '{presentation_id}' not found for this tenant"
+            )
+        
+        # Helper to determine file format from s3_url or default
+        def get_file_format(s3_url: Optional[str]) -> Optional[str]:
+            if not s3_url:
+                return None
+            if s3_url.endswith('.pptx'):
+                return 'pptx'
+            elif s3_url.endswith('.pdf'):
+                return 'pdf'
+            elif s3_url.endswith('.ppt'):
+                return 'ppt'
+            return 'pptx'  # Default
         
         return PresentationResponse(
             id=presentation.id,
@@ -77,12 +129,19 @@ async def get_presentation_details(
             s3_url=presentation.s3_url,
             slidespeak_presentation_id=presentation.slidespeak_presentation_id,
             created_at=presentation.created_at.isoformat() if presentation.created_at else "",
-            updated_at=presentation.updated_at.isoformat() if presentation.updated_at else ""
+            updated_at=presentation.updated_at.isoformat() if presentation.updated_at else "",
+            is_downloadable=presentation.status == "completed" and presentation.s3_url is not None,
+            file_size=None,  # Could be added to Presentation model if needed
+            file_format=get_file_format(presentation.s3_url)
         )
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise_standard_error(
+            status_code=500,
+            message="Internal server error",
+            detail=str(e)
+        )
 
 
 @router.get("/v1/presentations/{presentation_id}/download", tags=["presentations"])
@@ -96,7 +155,11 @@ async def get_presentation_download(
         tenant_id = user.tenant_id
         presentation = await get_presentation(session, presentation_id, tenant_id)
         if not presentation:
-            raise HTTPException(status_code=404, detail="Presentation not found")
+            raise_standard_error(
+                status_code=404,
+                message="Presentation not found",
+                detail=f"Presentation with ID '{presentation_id}' not found for this tenant"
+            )
         
         if not presentation.s3_key:
             # Try to get from SlideSpeak if we have presentation_id
@@ -110,7 +173,11 @@ async def get_presentation_download(
                 except:
                     pass
             
-            raise HTTPException(status_code=404, detail="Presentation file not available")
+            raise_standard_error(
+                status_code=404,
+                message="Presentation file not available",
+                detail="Presentation file has not been generated yet or is unavailable"
+            )
         
         # Generate presigned URL
         presigned_url = generate_presigned_url(presentation.s3_key, expiration=3600)
@@ -123,7 +190,11 @@ async def get_presentation_download(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise_standard_error(
+            status_code=500,
+            message="Internal server error",
+            detail=str(e)
+        )
 
 
 @router.delete("/v1/presentations/{presentation_id}", tags=["presentations"])
@@ -138,11 +209,19 @@ async def delete_presentation(
         
         # Verify ownership
         if not await verify_presentation_ownership(session, presentation_id, tenant_id):
-            raise HTTPException(status_code=404, detail="Presentation not found")
+            raise_standard_error(
+                status_code=404,
+                message="Presentation not found",
+                detail=f"Presentation with ID '{presentation_id}' not found for this tenant"
+            )
         
         presentation = await get_presentation(session, presentation_id, tenant_id)
         if not presentation:
-            raise HTTPException(status_code=404, detail="Presentation not found")
+            raise_standard_error(
+                status_code=404,
+                message="Presentation not found",
+                detail=f"Presentation with ID '{presentation_id}' not found for this tenant"
+            )
         
         # Delete from S3 if exists
         if presentation.s3_key:
@@ -162,4 +241,8 @@ async def delete_presentation(
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise_standard_error(
+            status_code=500,
+            message="Internal server error",
+            detail=str(e)
+        )

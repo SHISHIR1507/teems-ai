@@ -12,13 +12,13 @@ class Base(DeclarativeBase):
 
 class Call(Base):
     """Stores meeting/call information with tenant isolation"""
-    __tablename__ = "calls"
+    __tablename__ = "notetaker_calls"
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     tenant_id = Column(String, nullable=False, index=True)  # Tenant ID from Auth0
     user_id = Column(String, nullable=True)  # Auth0 sub (for reference)
     meeting_id = Column(String, nullable=True, index=True)  # Nylas meeting ID
-    calendar_event_id = Column(String, ForeignKey("calendar_events.id", ondelete="SET NULL"), nullable=True, index=True)  # FK to CalendarEvent
+    calendar_event_id = Column(String, ForeignKey("notetaker_calendar_events.id", ondelete="SET NULL"), nullable=True, index=True)  # FK to CalendarEvent
     title = Column(String, nullable=False)
     meeting_link = Column(Text, nullable=False)
     start_time = Column(DateTime, nullable=False)
@@ -37,16 +37,16 @@ class Call(Base):
     
     # Indexes for better query performance
     __table_args__ = (
-        Index("idx_calls_tenant_created", "tenant_id", "created_at"),
+        Index("idx_notetaker_calls_tenant_created", "tenant_id", "created_at"),
     )
 
 
 class CallChunk(Base):
     """Stores chunked transcript content with embeddings for RAG"""
-    __tablename__ = "call_chunks"
+    __tablename__ = "notetaker_call_chunks"
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    call_id = Column(String, ForeignKey("calls.id", ondelete="CASCADE"), nullable=False, index=True)
+    call_id = Column(String, ForeignKey("notetaker_calls.id", ondelete="CASCADE"), nullable=False, index=True)
     chunk_index = Column(Integer, nullable=False)
     content_type = Column(String, nullable=False, default="transcript")  # 'transcript', 'summary', 'action_items'
     content = Column(Text, nullable=False)
@@ -58,13 +58,13 @@ class CallChunk(Base):
     
     # Index for vector similarity search
     __table_args__ = (
-        Index("idx_call_chunks_call_id", "call_id"),
+        Index("idx_notetaker_call_chunks_call_id", "call_id"),
     )
 
 
 class UserSettings(Base):
     """Stores user-specific settings including Google Calendar integration"""
-    __tablename__ = "user_settings"
+    __tablename__ = "notetaker_user_settings"
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     tenant_id = Column(String, nullable=False, index=True)  # Tenant ID from Auth0
@@ -81,13 +81,13 @@ class UserSettings(Base):
     
     # Unique constraint on tenant_id + user_id
     __table_args__ = (
-        Index("idx_user_settings_tenant_user", "tenant_id", "user_id", unique=True),
+        Index("idx_notetaker_user_settings_tenant_user", "tenant_id", "user_id", unique=True),
     )
 
 
 class CalendarEvent(Base):
     """Stores calendar events synced from Google Calendar"""
-    __tablename__ = "calendar_events"
+    __tablename__ = "notetaker_calendar_events"
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     tenant_id = Column(String, nullable=False, index=True)  # Tenant ID from Auth0
@@ -100,7 +100,7 @@ class CalendarEvent(Base):
     meeting_link = Column(Text, nullable=True)  # Meeting URL if available
     meeting_platform = Column(String, nullable=True)  # "zoom", "teams", "google_meet", etc.
     status = Column(String, nullable=False, default="synced")  # synced, scheduled, joined, completed, failed
-    call_id = Column(String, ForeignKey("calls.id", ondelete="SET NULL"), nullable=True, index=True)  # FK to Call
+    call_id = Column(String, ForeignKey("notetaker_calls.id", ondelete="SET NULL"), nullable=True, index=True)  # FK to Call
     nylas_notetaker_id = Column(String, nullable=True)  # Nylas notetaker ID after join
     auto_join_attempted = Column(Boolean, nullable=False, default=False)  # Whether auto-join was attempted
     join_attempted_at = Column(DateTime, nullable=True)  # When join was attempted
@@ -112,6 +112,6 @@ class CalendarEvent(Base):
     
     # Indexes for better query performance
     __table_args__ = (
-        Index("idx_calendar_events_tenant_start", "tenant_id", "start_time"),
-        Index("idx_calendar_events_status", "status"),
+        Index("idx_notetaker_calendar_events_tenant_start", "tenant_id", "start_time"),
+        Index("idx_notetaker_calendar_events_status", "status"),
     )

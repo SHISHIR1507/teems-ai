@@ -18,6 +18,10 @@ from app.services.db_helpers import (
 )
 from app.services.s3_service import upload_bytes_to_s3, get_s3_key_for_content
 from app.tools.vision_tools import analyze_content
+from app.services.realtime_notifier import (
+    notify_vision_analysis_started,
+    notify_vision_analysis_completed,
+)
 
 router = APIRouter()
 
@@ -69,14 +73,7 @@ async def upload_content(
             public_read=True,
         )
 
-        # Analyze content with vision API (for images, and attempt for videos)
-        vision_analysis = None
-        try:
-            vision_analysis = analyze_content(s3_url, asset_type=asset_type)
-        except Exception:
-            # If vision analysis fails, continue without it
-            pass
-
+        # Create asset first (we'll update with vision_analysis later)
         asset = await create_asset(
             session=session,
             conversation_id=cid,
@@ -88,8 +85,24 @@ async def upload_content(
             s3_url=s3_url,
             file_name=file.filename,
             content_type=content_type,
-            vision_analysis=vision_analysis,
         )
+
+        # Notify vision analysis started
+        await notify_vision_analysis_started(tenant_id, cid, asset.id, asset_type)
+
+        # Analyze content with vision API (for images, and attempt for videos)
+        vision_analysis = None
+        error_msg = None
+        try:
+            vision_analysis = analyze_content(s3_url, asset_type=asset_type)
+            # Update asset with vision analysis
+            asset.vision_analysis = vision_analysis
+            await session.flush()
+            await notify_vision_analysis_completed(tenant_id, cid, asset.id, asset_type, success=True)
+        except Exception as e:
+            # If vision analysis fails, continue without it
+            error_msg = str(e)
+            await notify_vision_analysis_completed(tenant_id, cid, asset.id, asset_type, success=False, error=error_msg)
 
         await update_conversation_state(
             session, cid, tenant_id,

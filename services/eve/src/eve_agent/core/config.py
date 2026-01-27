@@ -17,6 +17,10 @@ class Settings(BaseSettings):
     
     # Database Configuration
     postgres_url: str = Field(..., alias="DATABASE_URL")
+    
+    # PostgreSQL MCP Configuration (for restricted read-only access)
+    postgres_mcp_user: str = Field(default="eve_mcp_readonly", alias="POSTGRES_MCP_USER")
+    postgres_mcp_password: str = Field(..., alias="POSTGRES_MCP_PASSWORD")
 
     # Auth0 configuration (matches eve-core pattern)
     auth0_domain: str = Field(..., alias="AUTH0_DOMAIN")
@@ -66,6 +70,12 @@ class Settings(BaseSettings):
     # RAG Configuration
     rag_top_k: int = Field(default=5, alias="RAG_TOP_K")
     default_tenant_id: str = Field(default="default", alias="DEFAULT_TENANT_ID")
+    
+    # Redis Configuration (for realtime notifications)
+    redis_url: str | None = Field(None, alias="REDIS_URL")
+    
+    # Agent Manager Configuration
+    agent_manager_url: str = Field(default="http://agent-manager:8080", alias="AGENT_MANAGER_URL")
     
     # API Configuration
     api_host: str = Field(default="0.0.0.0", alias="API_HOST")

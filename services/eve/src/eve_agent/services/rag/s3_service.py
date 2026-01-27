@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Optional, Tuple
 import tempfile
 
-from ...config import get_settings
+from ...core.config import get_settings
 
 settings = get_settings()
 

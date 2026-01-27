@@ -34,6 +34,13 @@ Joins meetings automatically, records conversations, and generates comprehensive
 
 Manages social media posting across platforms with optimized captions, hashtags, and thumbnails.
 
+### 5. Presentation Agent
+**Category**: Productivity  
+**Status**: Available  
+**File**: `presentation_agent.md`
+
+Creates, edits, and manages professional PowerPoint presentations from text, documents, or natural language descriptions.
+
 ## Agent Spec Format
 
 Each agent specification includes:
@@ -121,6 +128,7 @@ Agents that create visual or video content:
 ### Productivity
 Agents that improve workflow efficiency:
 - Meeting Notetaker
+- Presentation Agent
 
 ### Marketing
 Agents that handle marketing and distribution:

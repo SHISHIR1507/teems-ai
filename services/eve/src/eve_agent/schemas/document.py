@@ -22,3 +22,6 @@ class DocumentUploadResponse(BaseModel):
     message: str
     document_id: str
     s3_url: str
+    processing_status: str = "completed"  # "processing", "completed", "failed"
+    total_chunks: Optional[int] = None
+    chunks_processed: Optional[int] = None
