@@ -96,7 +96,8 @@ def join_meeting_via_nylas(
             # Validate meeting link
             validation = meeting_detection_service.validate_meeting_link(event.meeting_link)
             if not validation["is_valid"]:
-                return f'{{"error": "Invalid meeting link: {validation.get(\"error\")}", "success": false}}'
+                error_msg = validation.get("error")
+                return f'{{"error": "Invalid meeting link: {error_msg}", "success": false}}'
             
             # Format join time (exactly at start time)
             join_time_iso = timezone_service.format_datetime_for_nylas(event.start_time)

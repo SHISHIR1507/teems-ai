@@ -50,7 +50,7 @@ class Message(Base):
     tenant_id = Column(String(128), nullable=False, index=True)
     role = Column(String(50), nullable=False)  # 'user', 'assistant', 'system'
     content = Column(Text, nullable=False)
-    metadata = Column(JSON, nullable=True)  # Optional metadata (tool calls, recommendations, etc.)
+    message_metadata = Column(JSON, nullable=True)  # Optional metadata (tool calls, recommendations, etc.)
     sequence_number = Column(Integer, nullable=False)  # Message order within conversation
     created_at = Column(TIMESTAMP, nullable=False, default=datetime.utcnow)
     

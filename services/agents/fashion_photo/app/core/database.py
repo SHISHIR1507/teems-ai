@@ -44,7 +44,7 @@ class FashionSession(Base):
     tenant_id = Column(String, nullable=False, index=True)  # Tenant ID from Auth0
     user_id = Column(String, nullable=True)  # Auth0 sub (for reference)
     stage = Column(String, nullable=False, default="CONVERSATION")  # CONVERSATION, APPAREL_SELECTION, AVATAR_SELECTION, SCENE_SUGGESTION, SCENE_CONFIRMATION, GENERATION, EDITING
-    metadata = Column(JSON, nullable=True)  # suggested_scene, awaiting_scene_confirmation, last_generation_batch_id, etc.
+    session_metadata = Column(JSON, nullable=True)  # suggested_scene, awaiting_scene_confirmation, last_generation_batch_id, etc.
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
@@ -89,7 +89,7 @@ class Apparel(Base):
     file_size = Column(Integer, nullable=True)
     content_type = Column(String, nullable=True)
     vision_analysis = Column(Text, nullable=True)  # GPT-4o Vision analysis result
-    metadata = Column(JSON, nullable=True)  # Additional metadata
+    apparel_metadata = Column(JSON, nullable=True)  # Additional metadata
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationship
@@ -146,7 +146,7 @@ class Task(Base):
     status = Column(String, nullable=False, default="pending")  # pending, processing, completed, failed
     result = Column(JSON, nullable=True)
     error = Column(Text, nullable=True)
-    metadata = Column(JSON, nullable=True)  # Task-specific metadata
+    task_metadata = Column(JSON, nullable=True)  # Task-specific metadata
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

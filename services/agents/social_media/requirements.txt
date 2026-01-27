@@ -14,3 +14,4 @@ boto3>=1.28.0
 redis>=5.0.0
 apscheduler>=3.10.0
 pytz>=2023.3
+greenlet==3.3.0

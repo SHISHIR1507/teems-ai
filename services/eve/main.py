@@ -12,7 +12,7 @@ app = create_app()
 
 if __name__ == '__main__':
     import uvicorn
-    from eve_agent.config import get_settings
+    from eve_agent.core.config import get_settings
     
     settings = get_settings()
     uvicorn.run(app, host=settings.api_host, port=settings.api_port, log_level="info")
