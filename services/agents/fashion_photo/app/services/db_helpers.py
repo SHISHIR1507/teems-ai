@@ -103,9 +103,20 @@ async def verify_session_ownership(session: AsyncSession, session_id: str, tenan
     return fashion_session is not None
 
 
-async def add_message(session: AsyncSession, session_id: str, role: str, content: str) -> Message:
+async def add_message(
+    session: AsyncSession,
+    session_id: str,
+    tenant_id: str,
+    role: str,
+    content: str,
+) -> Message:
     """Add a message to session"""
-    message = Message(session_id=session_id, role=role, content=content)
+    message = Message(
+        session_id=session_id,
+        tenant_id=tenant_id,
+        role=role,
+        content=content,
+    )
     session.add(message)
     await session.flush()
     return message

@@ -194,7 +194,44 @@ curl -X GET http://localhost:8000/v1/calls/{call_id} \
   -H "Authorization: Bearer YOUR_AUTH0_TOKEN"
 ```
 
-### 5. Chat About a Meeting
+### 5. Chat Across Meetings (Recommended)
+
+After meetings have been processed (transcripts available), you can ask questions
+across **all meetings attended by the authenticated user**:
+
+```bash
+curl -X POST http://localhost:8000/v1/meetings/chat \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_AUTH0_TOKEN" \
+  -d '{
+    "query": "What were the main action items from my recent meetings?"
+  }'
+```
+
+**Expected Response:**
+```json
+{
+  "answer": "Based on your recent meetings...",
+  "meeting_title": "Multiple meetings",
+  "chunks_used": 5,
+  "query": "What were the main action items from my recent meetings?",
+  "sources": [
+    {
+      "call_id": "uuid-1",
+      "meeting_title": "Team Standup",
+      "snippet_preview": "Alice: We need to ship..."
+    },
+    {
+      "call_id": "uuid-2",
+      "meeting_title": "Product Review",
+      "snippet_preview": "Bob: Let's prioritize..."
+    }
+  ],
+  "deprecated_endpoint": false
+}
+```
+
+### 6. Chat About a Single Meeting (Deprecated)
 
 After a meeting has been processed (transcript available), you can query it:
 
@@ -213,7 +250,15 @@ curl -X POST http://localhost:8000/v1/meetings/{call_id}/chat \
   "answer": "Based on the meeting context...",
   "meeting_title": "Team Standup",
   "chunks_used": 3,
-  "query": "What were the main action items?"
+  "query": "What were the main action items?",
+  "sources": [
+    {
+      "call_id": "uuid-here",
+      "meeting_title": "Team Standup",
+      "snippet_preview": null
+    }
+  ],
+  "deprecated_endpoint": true
 }
 ```
 
@@ -297,8 +342,30 @@ Schedule a meeting with Nylas for transcription.
 
 ---
 
-#### `POST /v1/meetings/{call_id}/chat`
-Query a meeting using RAG-powered chat.
+#### `POST /v1/meetings/chat`
+Global chat across all completed meetings for the authenticated user.
+
+**Request Body:**
+```json
+{
+  "query": "string (required)"
+}
+```
+
+**Response:** `ChatResponse` with AI-generated answer
+
+The response includes:
+- `answer`: AI-generated answer
+- `meeting_title`: Either a single meeting title or `"Multiple meetings"`
+- `chunks_used`: Number of context chunks used
+- `query`: Original query
+- `sources`: Optional list of meetings used as sources (call_id, meeting_title, snippet_preview)
+- `deprecated_endpoint`: `false` for this endpoint
+
+---
+
+#### `POST /v1/meetings/{call_id}/chat` (Deprecated)
+Query a single meeting using RAG-powered chat.
 
 **Path Parameters:**
 - `call_id` (string): The meeting ID from scheduling
@@ -311,6 +378,10 @@ Query a meeting using RAG-powered chat.
 ```
 
 **Response:** `ChatResponse` with AI-generated answer
+
+The response is the same shape as the global endpoint, but will have:
+- `sources`: A single entry pointing to this call
+- `deprecated_endpoint`: `true` (this endpoint is kept for backward compatibility)
 
 **Error Responses:**
 - `404`: Meeting not found

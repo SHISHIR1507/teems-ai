@@ -1,35 +1,16 @@
 """
-Health check endpoint with dependency checks
+Health check endpoint
 """
-from fastapi import APIRouter, Depends
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
-from app.core.dependencies import get_db_session
-from app.core.config import get_settings
+from fastapi import APIRouter
 
 router = APIRouter()
 
 
 @router.get("/health")
-async def health_check(session: AsyncSession = Depends(get_db_session)):
-    """
-    Health check endpoint with dependency status checks.
-    Returns detailed status of database and other dependencies.
-    """
-    dependencies = {}
-    overall_status = "healthy"
-    
-    # Check database connectivity
-    try:
-        await session.execute(text("SELECT 1"))
-        dependencies["database"] = "connected"
-    except Exception as e:
-        dependencies["database"] = f"error: {str(e)}"
-        overall_status = "unhealthy"
-    
+async def health_check():
+    """Minimal health check: returns ok if service is running."""
     return {
-        "status": overall_status,
+        "status": "ok",
         "service": "Social Media Agent API",
         "version": "1.0.0",
-        "dependencies": dependencies
     }

@@ -140,6 +140,7 @@ async def verify_call_ownership(session: AsyncSession, call_id: str, tenant_id: 
 async def create_call_chunk(
     session: AsyncSession,
     call_id: str,
+    tenant_id: str,
     chunk_index: int,
     content: str,
     embedding: List[float],
@@ -149,6 +150,7 @@ async def create_call_chunk(
     chunk = CallChunk(
         id=str(uuid.uuid4()),
         call_id=call_id,
+        tenant_id=tenant_id,
         chunk_index=chunk_index,
         content_type=content_type,
         content=content,

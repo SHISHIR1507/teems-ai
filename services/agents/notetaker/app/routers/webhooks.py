@@ -177,7 +177,11 @@ async def nylas_webhook_post(request: Request, db: AsyncSession = Depends(get_db
                         # ========== PROCESS FOR RAG ==========
                         try:
                             chunks_created = await rag_service.process_meeting_for_rag(
-                                {"id": call.id, "transcript": clean_transcript_text},
+                                {
+                                    "id": call.id,
+                                    "tenant_id": call.tenant_id,
+                                    "transcript": clean_transcript_text,
+                                },
                                 db
                             )
                             print(f"Created {chunks_created} RAG chunks with embeddings")

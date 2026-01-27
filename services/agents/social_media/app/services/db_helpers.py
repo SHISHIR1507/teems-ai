@@ -74,9 +74,20 @@ async def verify_conversation_ownership(session: AsyncSession, conversation_id: 
     return conversation is not None
 
 
-async def add_message(session: AsyncSession, conversation_id: str, role: str, content: str) -> Message:
+async def add_message(
+    session: AsyncSession,
+    conversation_id: str,
+    tenant_id: str,
+    role: str,
+    content: str,
+) -> Message:
     """Add a message to conversation"""
-    message = Message(conversation_id=conversation_id, role=role, content=content)
+    message = Message(
+        conversation_id=conversation_id,
+        tenant_id=tenant_id,
+        role=role,
+        content=content,
+    )
     session.add(message)
     await session.flush()
     return message

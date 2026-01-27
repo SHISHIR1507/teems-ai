@@ -47,6 +47,7 @@ class CallChunk(Base):
     
     id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
     call_id = Column(String, ForeignKey("notetaker_calls.id", ondelete="CASCADE"), nullable=False, index=True)
+    tenant_id = Column(String, nullable=False, index=True)
     chunk_index = Column(Integer, nullable=False)
     content_type = Column(String, nullable=False, default="transcript")  # 'transcript', 'summary', 'action_items'
     content = Column(Text, nullable=False)
@@ -56,9 +57,10 @@ class CallChunk(Base):
     # Relationship
     call = relationship("Call", back_populates="chunks")
     
-    # Index for vector similarity search
+    # Indexes for query performance and vector similarity search
     __table_args__ = (
         Index("idx_notetaker_call_chunks_call_id", "call_id"),
+        Index("idx_notetaker_call_chunks_tenant_call", "tenant_id", "call_id"),
     )
 
 

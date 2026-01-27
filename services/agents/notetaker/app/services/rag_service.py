@@ -10,7 +10,7 @@ import logging
 from app.services.chunker import chunk_text_for_rag
 from app.services.embeddings import embedder
 from app.services.llm import llm
-from app.models.call import CallChunk
+from app.models.call import CallChunk, Call
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +39,7 @@ class RAGService:
             
             transcript = call_data["transcript"]
             call_id = call_data["id"]
+            tenant_id = call_data.get("tenant_id")
             
             # Chunk transcript
             chunks = chunk_text_for_rag(transcript)
@@ -60,6 +61,7 @@ class RAGService:
             for idx, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
                 chunk_record = CallChunk(
                     call_id=call_id,
+                    tenant_id=tenant_id,
                     chunk_index=idx,
                     content_type="transcript",
                     content=chunk,
@@ -123,6 +125,90 @@ class RAGService:
         
         except Exception as e:
             logger.error(f"Error searching relevant chunks: {e}", exc_info=True)
+            return []
+    
+    async def search_relevant_chunks_for_user(
+        self,
+        query: str,
+        tenant_id: str,
+        user_id: str,
+        db: AsyncSession,
+        top_k: int = 20
+    ) -> List[Dict]:
+        """
+        Find relevant chunks across all meetings for a given user using vector similarity search.
+        
+        Args:
+            query: User's query string
+            tenant_id: Tenant ID for multi-tenancy isolation
+            user_id: Auth0 user ID (sub) to scope meetings
+            db: Database session
+            top_k: Number of top chunks to return
+        
+        Returns:
+            List of dicts containing:
+                - content: chunk text
+                - call_id: associated call ID
+                - meeting_title: associated meeting title
+        """
+        try:
+            # Get query embedding
+            query_embedding = await embedder.embed_one(query)
+            
+            if not query_embedding:
+                logger.warning(f"Failed to generate embedding for query: {query}")
+                return []
+            
+            # Vector search across all completed calls for this user and tenant
+            stmt = (
+                select(CallChunk, Call)
+                .join(Call, CallChunk.call_id == Call.id)
+                .filter(
+                    Call.tenant_id == tenant_id,
+                    Call.user_id == user_id,
+                    Call.status == "completed",
+                )
+                .order_by(CallChunk.embedding.cosine_distance(query_embedding))
+                .limit(top_k)
+            )
+            
+            result = await db.execute(stmt)
+            rows = result.all()
+            
+            if not rows:
+                logger.info(
+                    "No chunks found for tenant %s user %s", tenant_id, user_id
+                )
+                return []
+            
+            logger.info(
+                "Found %d relevant chunks for query for tenant %s user %s",
+                len(rows),
+                tenant_id,
+                user_id,
+            )
+            
+            # Each row is (CallChunk, Call)
+            chunks_with_meta: List[Dict] = []
+            for chunk, call in rows:
+                chunks_with_meta.append(
+                    {
+                        "content": chunk.content,
+                        "call_id": call.id,
+                        "meeting_title": call.title,
+                    }
+                )
+            
+            return chunks_with_meta
+        
+        except Exception as e:
+            logger.error(
+                "Error searching relevant chunks for user %s in tenant %s: %s",
+                user_id,
+                tenant_id,
+                e,
+                exc_info=True,
+            )
             return []
     
     async def generate_answer(

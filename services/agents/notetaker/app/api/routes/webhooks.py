@@ -214,6 +214,7 @@ async def nylas_webhook_post(
                                         await create_call_chunk(
                                             session=session,
                                             call_id=call.id,
+                                            tenant_id=call.tenant_id,
                                             chunk_index=idx,
                                             content=chunk,
                                             embedding=embedding,

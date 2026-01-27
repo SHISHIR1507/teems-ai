@@ -70,7 +70,7 @@ async def chat(
         )
         
         # Add user message to database
-        await add_message(session, conversation_id, "user", request.message)
+        await add_message(session, conversation_id, tenant_id, "user", request.message)
         
         # Get brand context
         brand_context = None
@@ -155,7 +155,7 @@ async def chat(
             result = chat_with_presentation_specialist(request.message, brand_context)
             
             # Add assistant message to database
-            await add_message(session, conversation_id, "assistant", result)
+            await add_message(session, conversation_id, tenant_id, "assistant", result)
             
             return ChatResponse(
                 message=result,

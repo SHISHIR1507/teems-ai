@@ -88,6 +88,7 @@ class Message(Base):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     conversation_id = Column(String, ForeignKey("social_media_conversations.id", ondelete="CASCADE"), nullable=False)
+    tenant_id = Column(String, nullable=False, index=True)
     role = Column(String, nullable=False)  # 'user', 'assistant', 'system'
     content = Column(Text, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)

@@ -188,6 +188,106 @@ async def schedule_meeting(
             detail=str(e)
         )
 
+@router.post("/v1/meetings/chat", response_model=ChatResponse, tags=["meetings"])
+async def chat_across_meetings(
+    request: ChatRequest,
+    user: AuthenticatedUser = Depends(require_tenant()),
+    session: AsyncSession = Depends(get_db_session),
+) -> ChatResponse:
+    """
+    Global chat endpoint that answers questions based on all meetings
+    attended by the authenticated user within their tenant.
+    
+    This is the preferred endpoint for end-user chat. It does not require
+    a specific call_id and instead searches across all completed meetings
+    for the current user.
+    """
+    try:
+        tenant_id = user.tenant_id
+        user_id = user.sub
+        query = request.query.strip()
+
+        if not query:
+            raise_standard_error(
+                status_code=400,
+                message="Query is required",
+                detail="Please provide a non-empty query string.",
+                field="query",
+            )
+
+        # Search relevant chunks across all completed meetings for this user
+        chunks_with_meta = await rag_service.search_relevant_chunks_for_user(
+            query=query,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            db=session,
+            top_k=20,
+        )
+
+        if not chunks_with_meta:
+            return ChatResponse(
+                answer=(
+                    "I couldn't find relevant information in your meeting notes "
+                    "for this question. Try asking about meetings that have already "
+                    "been processed and have transcripts available."
+                ),
+                meeting_title="No relevant meetings found",
+                chunks_used=0,
+                query=query,
+                sources=[],
+            )
+
+        # Build context from top N chunks
+        context_chunks = [item["content"] for item in chunks_with_meta]
+
+        # Determine meeting title and source metadata
+        unique_meetings = {}
+        for item in chunks_with_meta:
+            call_id = item["call_id"]
+            title = item["meeting_title"]
+            if call_id not in unique_meetings:
+                # Use the first snippet as preview
+                preview = item["content"][:200] if item["content"] else ""
+                unique_meetings[call_id] = {
+                    "call_id": call_id,
+                    "meeting_title": title,
+                    "snippet_preview": preview,
+                }
+
+        if len(unique_meetings) == 1:
+            # All chunks from a single meeting
+            first_meeting = next(iter(unique_meetings.values()))
+            meeting_title = first_meeting["meeting_title"]
+        else:
+            meeting_title = "Multiple meetings"
+
+        # Generate answer
+        answer = await rag_service.generate_answer(
+            query=query,
+            context_chunks=context_chunks,
+            meeting_title=meeting_title,
+        )
+
+        sources_list = list(unique_meetings.values())
+
+        return ChatResponse(
+            answer=answer,
+            meeting_title=meeting_title,
+            chunks_used=len(context_chunks),
+            query=query,
+            sources=sources_list,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Error in global chat endpoint: %s", e, exc_info=True)
+        raise_standard_error(
+            status_code=500,
+            message="Internal server error",
+            detail=str(e),
+        )
+
 
 @router.post("/v1/meetings/{call_id}/chat", response_model=ChatResponse, tags=["meetings"])
 async def chat_about_meeting(
@@ -197,12 +297,11 @@ async def chat_about_meeting(
     session: AsyncSession = Depends(get_db_session)
 ) -> ChatResponse:
     """
-    Query a meeting using RAG-powered chat.
+    DEPRECATED: Query a single meeting using RAG-powered chat.
     
-    Requires authentication with tenant_id.
-    The call must belong to the user's tenant.
-    
-    Returns an AI-generated answer based on the meeting transcript.
+    This endpoint is kept for backward compatibility. New integrations
+    should use `POST /v1/meetings/chat` which searches across all meetings
+    for the authenticated user and does not require a call_id.
     """
     try:
         tenant_id = user.tenant_id
@@ -236,7 +335,15 @@ async def chat_about_meeting(
                 answer="I couldn't find relevant information in the meeting notes for your question.",
                 meeting_title=call.title,
                 chunks_used=0,
-                query=query
+                query=query,
+                sources=[
+                    {
+                        "call_id": call.id,
+                        "meeting_title": call.title,
+                        "snippet_preview": None,
+                    }
+                ],
+                deprecated_endpoint=True,
             )
         
         # Generate answer
@@ -250,7 +357,15 @@ async def chat_about_meeting(
             answer=answer,
             meeting_title=call.title,
             chunks_used=len(relevant_chunks),
-            query=query
+            query=query,
+            sources=[
+                {
+                    "call_id": call.id,
+                    "meeting_title": call.title,
+                    "snippet_preview": None,
+                }
+            ],
+            deprecated_endpoint=True,
         )
     
     except HTTPException:

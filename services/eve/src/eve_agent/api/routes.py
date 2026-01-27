@@ -57,60 +57,16 @@ router = APIRouter()
 settings = get_settings()
 
 
-
 @router.get("/health")
-async def health(session: AsyncSession = Depends(get_db_session)):
+async def health():
     """
-    Health check endpoint with dependency status checks.
-    Returns detailed status of database, Redis, S3, and other dependencies.
+    Minimal health check endpoint.
+    Returns ok if the service process is running.
     """
-    from sqlalchemy import text
-    from ..services.realtime_notifier import get_redis_client
-    
-    dependencies = {}
-    overall_status = "healthy"
-    
-    # Check database connectivity
-    try:
-        await session.execute(text("SELECT 1"))
-        dependencies["database"] = "connected"
-    except Exception as e:
-        dependencies["database"] = f"error: {str(e)}"
-        overall_status = "unhealthy"
-    
-    # Check Redis connectivity (for realtime notifications)
-    try:
-        redis_client = await get_redis_client()
-        if redis_client:
-            await redis_client.ping()
-            dependencies["redis"] = "connected"
-        else:
-            dependencies["redis"] = "not_configured"
-    except Exception as e:
-        dependencies["redis"] = f"error: {str(e)}"
-        # Redis is optional, so don't mark as unhealthy
-    
-    # Check S3 connectivity
-    try:
-        from botocore.exceptions import ClientError, BotoCoreError
-        if s3_service and hasattr(s3_service, 'bucket_name') and s3_service.bucket_name:
-            # Try to check if bucket exists (lightweight operation)
-            s3_service.s3_client.head_bucket(Bucket=s3_service.bucket_name)
-            dependencies["s3"] = "connected"
-        else:
-            dependencies["s3"] = "not_configured"
-    except (ClientError, BotoCoreError) as e:
-        dependencies["s3"] = f"error: {str(e)}"
-        overall_status = "degraded"
-    except Exception as e:
-        dependencies["s3"] = f"error: {str(e)}"
-        overall_status = "degraded"
-    
     return {
-        "status": overall_status,
+        "status": "ok",
         "service": "Eve Agent API",
         "version": "1.0.0",
-        "dependencies": dependencies
     }
 
 

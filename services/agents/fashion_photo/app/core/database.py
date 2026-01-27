@@ -126,6 +126,7 @@ class Message(Base):
     
     id = Column(Integer, primary_key=True, autoincrement=True)
     session_id = Column(String, ForeignKey("fashion_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    tenant_id = Column(String, nullable=False, index=True)
     role = Column(String, nullable=False)  # 'user', 'assistant', 'system'
     content = Column(Text, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)

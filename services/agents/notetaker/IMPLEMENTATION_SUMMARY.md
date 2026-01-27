@@ -75,6 +75,10 @@ Successfully implemented Google Calendar integration, timezone management, and a
 - `POST /v1/meetings/auto-join/enable` - Enable auto-join
 - `POST /v1/meetings/auto-join/disable` - Disable auto-join
 
+#### Chat Endpoints
+- `POST /v1/meetings/chat` - **Global chat across all completed meetings for the authenticated user (recommended)**
+- `POST /v1/meetings/{call_id}/chat` - Deprecated per-meeting chat endpoint kept for backward compatibility
+
 ### 10. Security & Encryption
 - **EncryptionService**: Encrypts OAuth tokens using cryptography library
 - PBKDF2 key derivation with SHA256

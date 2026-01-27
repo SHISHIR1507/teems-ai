@@ -70,14 +70,14 @@ async def chat(
 
         fashion_session = await get_or_create_session(db, session_id, tenant_id, user.sub)
 
-        if not request.message:
+            if not request.message:
             settings = get_settings()
             welcome = (
                 "Let's create some fashion photos. First, upload your apparel images "
                 "(use the upload API with upload_type=apparel). Then we'll pick an avatar. "
                 "Preset avatars you can use:\n" + "\n".join(settings.preset_avatars)
             )
-            await add_message(db, session_id, "assistant", welcome)
+            await add_message(db, session_id, tenant_id, "assistant", welcome)
             return ChatResponse(
                 message=welcome,
                 session_id=session_id,
@@ -87,7 +87,7 @@ async def chat(
                 next_steps=["Upload apparel images to get started"]
             )
 
-        await add_message(db, session_id, "user", request.message)
+        await add_message(db, session_id, tenant_id, "user", request.message)
 
         avatars = await get_session_avatars(db, session_id, tenant_id)
         apparel = await get_session_apparel(db, session_id, tenant_id)
@@ -214,7 +214,7 @@ async def chat(
         if new_gen_urls and fashion_session.stage not in ("GENERATION", "EDITING"):
             await update_session_stage(db, session_id, tenant_id, "GENERATION")
 
-        await add_message(db, session_id, "assistant", output_text)
+        await add_message(db, session_id, tenant_id, "assistant", output_text)
         fashion_session = await get_session(db, session_id, tenant_id)
         
         # Determine available actions based on stage

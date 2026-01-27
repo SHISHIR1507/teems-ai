@@ -52,7 +52,7 @@ async def chat(
         conversation_id = request.conversation_id or str(uuid.uuid4())
 
         conv = await get_or_create_conversation(session, conversation_id, tenant_id, user.sub)
-        await add_message(session, conversation_id, "user", request.message)
+        await add_message(session, conversation_id, tenant_id, "user", request.message)
         await session.flush()
 
         msgs = await get_conversation_messages(session, conversation_id, limit=20)
@@ -96,7 +96,7 @@ async def chat(
             scheduled_at,
         )
 
-        await add_message(session, conversation_id, "assistant", reply)
+        await add_message(session, conversation_id, tenant_id, "assistant", reply)
         
         # Check if a post was created (for immediate or scheduled posts)
         recent_post = await get_recent_post_by_conversation(session, conversation_id, tenant_id)

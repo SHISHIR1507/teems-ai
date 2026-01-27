@@ -25,6 +25,16 @@ class CallResponse(BaseModel):
     has_action_items: bool = Field(default=False, description="Whether action items are available")
 
 
+class ChatSource(BaseModel):
+    """Lightweight source information for chat responses"""
+    call_id: str = Field(..., description="Call ID used as a source")
+    meeting_title: str = Field(..., description="Title of the meeting used as a source")
+    snippet_preview: Optional[str] = Field(
+        default=None,
+        description="Optional short preview of the context used from this meeting",
+    )
+
+
 class ScheduleMeetingResponse(BaseModel):
     """Response schema for meeting scheduling"""
     success: bool
@@ -40,6 +50,14 @@ class ChatResponse(BaseModel):
     meeting_title: str
     chunks_used: int = Field(..., description="Number of context chunks used")
     query: str
+    sources: Optional[List[ChatSource]] = Field(
+        default=None,
+        description="Optional list of meetings that were used as sources for this answer",
+    )
+    deprecated_endpoint: bool = Field(
+        default=False,
+        description="True if this response came from a deprecated endpoint",
+    )
 
 
 class CallListResponse(BaseModel):
