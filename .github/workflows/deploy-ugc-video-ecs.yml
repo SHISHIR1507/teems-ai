@@ -336,6 +336,9 @@ jobs:
           LIPSYNC_API_KEY: ${{ secrets.LIPSYNC_API_KEY || secrets.UGC_VIDEO_LIPSYNC_API_KEY || '' }}
           CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS || secrets.UGC_VIDEO_CORS_ALLOWED_ORIGINS || '' }}
           SSL_CERTIFICATE_ARN: ${{ secrets.SSL_CERTIFICATE_ARN || secrets.UGC_VIDEO_SSL_CERTIFICATE_ARN }}
+          AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN || secrets.UGC_VIDEO_AUTH0_DOMAIN }}
+          AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE || secrets.UGC_VIDEO_AUTH0_AUDIENCE }}
+          AUTH0_ALGORITHM: ${{ secrets.AUTH0_ALGORITHM || secrets.UGC_VIDEO_AUTH0_ALGORITHM || 'RS256' }}
         run: |
           set -e
           
@@ -398,6 +401,9 @@ jobs:
               LipsyncApiKey="${LIPSYNC_API_KEY}" \
               CORSAllowedOrigins="${CORS_ALLOWED_ORIGINS:-}" \
               SSLCertificateArn="${SSL_CERTIFICATE_ARN:-}" \
+              Auth0Domain="${AUTH0_DOMAIN:-}" \
+              Auth0Audience="${AUTH0_AUDIENCE:-}" \
+              Auth0Algorithm="${AUTH0_ALGORITHM:-RS256}" \
               SharedVPCId="${VPC_ID}" \
               SharedSubnet1Id="${SUBNET1_ID}" \
               SharedSubnet2Id="${SUBNET2_ID}" \

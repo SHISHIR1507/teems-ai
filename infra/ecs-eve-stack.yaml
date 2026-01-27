@@ -21,6 +21,10 @@ Parameters:
     Type: String
     Default: ""
     Description: PostgreSQL database URL
+  PostgresMcpPassword:
+    Type: String
+    Default: ""
+    Description: Password for Eve MCP read-only PostgreSQL user
   AWSRegion:
     Type: String
     Default: eu-north-1
@@ -267,6 +271,8 @@ Resources:
               Value: info
             - Name: DATABASE_URL
               Value: !Ref DatabaseUrl
+            - Name: POSTGRES_MCP_PASSWORD
+              Value: !Ref PostgresMcpPassword
             - Name: AIML_API_KEY
               Value: !Ref AIMLApiKey
             - Name: AIML_BASE_URL

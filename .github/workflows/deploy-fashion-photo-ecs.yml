@@ -325,6 +325,7 @@ jobs:
       - name: Deploy CloudFormation stack
         id: deploy-stack
         env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL || secrets.FASHION_PHOTO_DATABASE_URL }}
           AWS_REGION: ${{ secrets.AWS_REGION }}
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID || secrets.FASHION_PHOTO_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY || secrets.FASHION_PHOTO_AWS_SECRET_ACCESS_KEY }}
@@ -332,6 +333,9 @@ jobs:
           AIML_API_KEY: ${{ secrets.AIML_API_KEY || secrets.FASHION_PHOTO_AIML_API_KEY }}
           LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY || secrets.LANGSMITH_API_KEY || secrets.FASHION_PHOTO_LANGCHAIN_API_KEY || secrets.FASHION_PHOTO_LANGSMITH_API_KEY }}
           LANGCHAIN_PROJECT: ${{ secrets.LANGCHAIN_PROJECT || secrets.LANGSMITH_PROJECT || secrets.FASHION_PHOTO_LANGCHAIN_PROJECT || secrets.FASHION_PHOTO_LANGSMITH_PROJECT || 'photographer_agent' }}
+          AUTH0_DOMAIN: ${{ secrets.AUTH0_DOMAIN || secrets.FASHION_PHOTO_AUTH0_DOMAIN || '' }}
+          AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE || secrets.FASHION_PHOTO_AUTH0_AUDIENCE || '' }}
+          AUTH0_ALGORITHM: ${{ secrets.AUTH0_ALGORITHM || secrets.FASHION_PHOTO_AUTH0_ALGORITHM || 'RS256' }}
           CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS || secrets.FASHION_PHOTO_CORS_ALLOWED_ORIGINS || '' }}
           SSL_CERTIFICATE_ARN: ${{ secrets.SSL_CERTIFICATE_ARN || secrets.FASHION_PHOTO_SSL_CERTIFICATE_ARN }}
         run: |
@@ -347,6 +351,10 @@ jobs:
           fi
           
           # Validate required secrets
+          if [[ -z "${DATABASE_URL}" ]]; then
+            echo "::error::DATABASE_URL is required. Set DATABASE_URL or FASHION_PHOTO_DATABASE_URL in GitHub secrets."
+            exit 1
+          fi
           if [[ -z "${S3_BUCKET_NAME}" ]]; then
             echo "::error::S3_BUCKET_NAME is required. Set S3_BUCKET_NAME or FASHION_PHOTO_S3_BUCKET_NAME in GitHub secrets."
             exit 1
@@ -380,11 +388,15 @@ jobs:
               ContainerPort=8000 \
               DesiredCount=1 \
               HealthCheckPath="/health" \
+              DatabaseUrl="${DATABASE_URL}" \
               AWSRegion="${AWS_REGION}" \
               S3BucketName="${S3_BUCKET_NAME}" \
               AIMLApiKey="${AIML_API_KEY}" \
               LangChainApiKey="${LANGCHAIN_API_KEY:-}" \
               LangChainProject="${LANGCHAIN_PROJECT}" \
+              Auth0Domain="${AUTH0_DOMAIN:-}" \
+              Auth0Audience="${AUTH0_AUDIENCE:-}" \
+              Auth0Algorithm="${AUTH0_ALGORITHM:-RS256}" \
               CORSAllowedOrigins="${CORS_ALLOWED_ORIGINS:-}" \
               SSLCertificateArn="${SSL_CERTIFICATE_ARN:-}" \
               SharedVPCId="${VPC_ID}" \
