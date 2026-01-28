@@ -37,6 +37,7 @@ if shared_libs_dir and shared_libs_dir.exists():
                 "http://localhost:5173", "http://127.0.0.1:5173",
                 "http://localhost:8000",
                 "https://teems-web-app.vercel.app", "http://teems-web-app.vercel.app",
+                "https://dev.teems.ai", "https://teems.ai",
             ]
             env_origins_str = os.getenv("CORS_ALLOWED_ORIGINS", "")
             env_origins = []
@@ -65,6 +66,7 @@ else:
             "http://localhost:5173", "http://127.0.0.1:5173",
             "http://localhost:8000",
             "https://teems-web-app.vercel.app", "http://teems-web-app.vercel.app",
+            "https://dev.teems.ai", "https://teems.ai",
         ]
         env_origins_str = os.getenv("CORS_ALLOWED_ORIGINS", "")
         env_origins = []

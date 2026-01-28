@@ -15,10 +15,14 @@ if str(shared_libs_dir) not in sys.path:
 
 try:
     from pyshared.errors import raise_standard_error
+    from pyshared.ids import resolve_conversation_id
 except ImportError:
     # Fallback if shared libs not available
     def raise_standard_error(status_code, message, detail=None, field=None):
         raise HTTPException(status_code=status_code, detail=message)
+    def resolve_conversation_id(v):
+        import uuid as _u
+        return v if (v and str(v).strip() and str(v).strip().lower() not in {"string", "optional-uuid", "uuid"}) else str(_u.uuid4())
 
 from ..schemas.chat import ChatRequest, ChatResponse, ActionClickedRequest, ResetRequest
 from ..schemas.document import DocumentResponse, DocumentUploadResponse
@@ -97,8 +101,8 @@ async def chat(
 ) -> ChatResponse:
     """Chat endpoint with REST response and realtime notifications via Redis"""
     user_message = chat_request.message.strip()
-    session_id = chat_request.session_id
-    
+    session_id = resolve_conversation_id(chat_request.session_id)
+
     if not user_message:
         raise_standard_error(
             status_code=400,

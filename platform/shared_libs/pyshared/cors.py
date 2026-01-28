@@ -62,6 +62,8 @@ def add_env_cors(
             "http://127.0.0.1:5173",
             "https://teems-web-app.vercel.app",
             "http://teems-web-app.vercel.app",
+            "https://dev.teems.ai",
+            "https://teems.ai",
         )
 
     env_value = os.getenv(env_var_name)

@@ -13,10 +13,14 @@ if str(shared_libs_dir) not in sys.path:
 
 try:
     from pyshared.errors import raise_standard_error
+    from pyshared.ids import resolve_conversation_id
 except ImportError:
     # Fallback if shared libs not available
     def raise_standard_error(status_code, message, detail=None, field=None):
         raise HTTPException(status_code=status_code, detail=message)
+    def resolve_conversation_id(v):
+        import uuid as _u
+        return v if (v and str(v).strip() and str(v).strip().lower() not in {"string", "optional-uuid", "uuid"}) else str(_u.uuid4())
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.dependencies import get_db_session
 from app.core.auth import AuthenticatedUser, require_tenant
@@ -32,7 +36,6 @@ from app.services.db_helpers import (
     create_task
 )
 from app.services.realtime_notifier import notify_presentation_generation_started
-import uuid
 
 router = APIRouter()
 
@@ -62,7 +65,7 @@ async def chat(
     """
     try:
         tenant_id = user.tenant_id  # From authenticated user
-        conversation_id = request.conversation_id or str(uuid.uuid4())
+        conversation_id = resolve_conversation_id(request.conversation_id)
         
         # Get or create conversation
         conversation = await get_or_create_conversation(

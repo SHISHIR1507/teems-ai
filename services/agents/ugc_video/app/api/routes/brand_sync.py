@@ -13,16 +13,19 @@ if str(shared_libs_dir) not in sys.path:
 
 try:
     from pyshared.errors import raise_standard_error
+    from pyshared.ids import resolve_conversation_id
 except ImportError:
     # Fallback if shared libs not available
     def raise_standard_error(status_code, message, detail=None, field=None):
         raise HTTPException(status_code=status_code, detail=message)
+    def resolve_conversation_id(value):
+        import uuid
+        return value if (value and value.strip() and value.strip().lower() not in {"string", "optional-uuid", "uuid"}) else str(uuid.uuid4())
 from sqlalchemy.ext.asyncio import AsyncSession
 from langsmith import Client, traceable
 import langsmith
 import os
 from datetime import datetime
-import uuid
 
 from app.core.dependencies import get_db_session
 from app.core.auth import AuthenticatedUser, require_tenant
@@ -61,7 +64,7 @@ async def brand_sync_endpoint(
     try:
         tenant_id = user.tenant_id
         user_id = user.sub
-        conversation_id = request.conversation_id or str(uuid.uuid4())
+        conversation_id = resolve_conversation_id(request.conversation_id)
         
         # Notify job started
         await notify_job_started(

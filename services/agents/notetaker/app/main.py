@@ -42,7 +42,7 @@ if shared_libs_dir and shared_libs_dir.exists():
         # Fallback: parse CORS_ALLOWED_ORIGINS from env with safe defaults
         from fastapi.middleware.cors import CORSMiddleware
         def add_env_cors(app):
-            # Safe default origins for local development
+            # Safe default origins for local development and production fallback
             default_origins = [
                 "http://localhost:3000",
                 "http://127.0.0.1:3000",
@@ -51,6 +51,8 @@ if shared_libs_dir and shared_libs_dir.exists():
                 "http://localhost:8000",
                 "https://teems-web-app.vercel.app",
                 "http://teems-web-app.vercel.app",
+                "https://dev.teems.ai",
+                "https://teems.ai",
             ]
             
             # Parse CORS_ALLOWED_ORIGINS from environment
@@ -81,7 +83,7 @@ else:
     # Fallback: parse CORS_ALLOWED_ORIGINS from env with safe defaults
     from fastapi.middleware.cors import CORSMiddleware
     def add_env_cors(app):
-        # Safe default origins for local development
+        # Safe default origins for local development and production fallback
         default_origins = [
             "http://localhost:3000",
             "http://127.0.0.1:3000",
@@ -90,6 +92,8 @@ else:
             "http://localhost:8000",
             "https://teems-web-app.vercel.app",
             "http://teems-web-app.vercel.app",
+            "https://dev.teems.ai",
+            "https://teems.ai",
         ]
         
         # Parse CORS_ALLOWED_ORIGINS from environment

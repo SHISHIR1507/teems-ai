@@ -1,7 +1,6 @@
 """
 Chat router — single flow-driven Concierge. All conversation via LLM, no manual anchors.
 """
-import uuid
 import asyncio
 import concurrent.futures
 from datetime import datetime
@@ -17,10 +16,14 @@ if str(shared_libs_dir) not in sys.path:
 
 try:
     from pyshared.errors import raise_standard_error
+    from pyshared.ids import resolve_conversation_id
 except ImportError:
     # Fallback if shared libs not available
     def raise_standard_error(status_code, message, detail=None, field=None):
         raise HTTPException(status_code=status_code, detail=message)
+    def resolve_conversation_id(v):
+        import uuid as _u
+        return v if (v and str(v).strip() and str(v).strip().lower() not in {"string", "optional-uuid", "uuid"}) else str(_u.uuid4())
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db_session
@@ -49,7 +52,7 @@ async def chat(
     """Single conversational flow: content → suggest → feedback → confirm → post. No manual anchors."""
     try:
         tenant_id = user.tenant_id
-        conversation_id = request.conversation_id or str(uuid.uuid4())
+        conversation_id = resolve_conversation_id(request.conversation_id)
 
         conv = await get_or_create_conversation(session, conversation_id, tenant_id, user.sub)
         await add_message(session, conversation_id, tenant_id, "user", request.message)

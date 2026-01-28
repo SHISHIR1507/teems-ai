@@ -81,7 +81,7 @@ def get_settings() -> Settings:
 
 def get_cors_origins() -> List[str]:
     """Get CORS allowed origins from settings and environment"""
-    # Default origins for local development
+    # Default origins for local development and production fallback
     default_origins = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
@@ -90,6 +90,8 @@ def get_cors_origins() -> List[str]:
         "http://localhost:8000",
         "https://teems-web-app.vercel.app",
         "http://teems-web-app.vercel.app",
+        "https://dev.teems.ai",
+        "https://teems.ai",
     ]
     
     # Get from settings

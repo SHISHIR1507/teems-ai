@@ -2,7 +2,6 @@
 Chat router - AI chat interface powered by CrewAI
 """
 import re
-import uuid as _uuid
 import requests
 from fastapi import APIRouter, HTTPException, Depends
 import sys
@@ -16,10 +15,14 @@ if str(shared_libs_dir) not in sys.path:
 
 try:
     from pyshared.errors import raise_standard_error
+    from pyshared.ids import resolve_conversation_id
 except ImportError:
     # Fallback if shared libs not available
     def raise_standard_error(status_code, message, detail=None, field=None):
         raise HTTPException(status_code=status_code, detail=message)
+    def resolve_conversation_id(v):
+        import uuid as _u
+        return v if (v and str(v).strip() and str(v).strip().lower() not in {"string", "optional-uuid", "uuid"}) else str(_u.uuid4())
 from sqlalchemy.ext.asyncio import AsyncSession
 from langsmith.run_helpers import get_current_run_tree
 from app.core.dependencies import get_db_session
@@ -66,7 +69,7 @@ async def chat(
         rt = get_current_run_tree()
         run_id = str(rt.id) if rt else None
         tenant_id = user.tenant_id
-        session_id = request.session_id or str(_uuid.uuid4())
+        session_id = resolve_conversation_id(request.session_id)
 
         fashion_session = await get_or_create_session(db, session_id, tenant_id, user.sub)
 

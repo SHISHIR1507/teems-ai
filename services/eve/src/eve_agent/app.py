@@ -47,6 +47,8 @@ def _add_env_cors(app: FastAPI) -> None:
                     "http://127.0.0.1:5173",
                     "http://localhost:8000",
                     "https://teems-web-app.vercel.app",
+                    "https://dev.teems.ai",
+                    "https://teems.ai",
                 ],
                 allow_credentials=True,
                 allow_methods=["*"],
