@@ -2,17 +2,15 @@
 FastAPI dependencies for database and core services
 """
 from sqlalchemy.ext.asyncio import AsyncSession
-from ..core.database import async_session_maker, init_engine
+from ..core import database as db_module
 
 
 async def get_db_session() -> AsyncSession:
     """Get database session (async)"""
-    # Ensure engine is initialized
-    if async_session_maker is None:
-        init_engine()
-    
-    assert async_session_maker is not None
-    async with async_session_maker() as session:
+    if db_module.async_session_maker is None:
+        db_module.init_engine()
+    assert db_module.async_session_maker is not None
+    async with db_module.async_session_maker() as session:
         try:
             yield session
             await session.commit()

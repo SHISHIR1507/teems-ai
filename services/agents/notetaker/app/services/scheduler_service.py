@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import pytz
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.database import async_session_maker, init_engine
+from app.core import database as db_module
 from app.services.db_helpers import (
     get_user_settings,
     get_upcoming_calendar_events
@@ -32,10 +32,9 @@ scheduler = AsyncIOScheduler()
 async def sync_calendar_for_user(tenant_id: str, user_id: str):
     """Sync calendar for a specific user"""
     try:
-        if async_session_maker is None:
-            init_engine()
-        
-        async with async_session_maker() as session:
+        if db_module.async_session_maker is None:
+            db_module.init_engine()
+        async with db_module.async_session_maker() as session:
             # Get user settings
             settings = await get_user_settings(session, tenant_id, user_id)
             if not settings or not settings.google_calendar_enabled:
@@ -84,10 +83,9 @@ async def sync_calendar_for_user(tenant_id: str, user_id: str):
 async def check_and_join_meetings():
     """Check for upcoming meetings and join them"""
     try:
-        if async_session_maker is None:
-            init_engine()
-        
-        async with async_session_maker() as session:
+        if db_module.async_session_maker is None:
+            db_module.init_engine()
+        async with db_module.async_session_maker() as session:
             # Get all users with auto-join enabled
             from app.models.call import UserSettings
             from sqlalchemy import select
@@ -196,10 +194,9 @@ async def check_and_join_meetings():
 async def refresh_oauth_tokens():
     """Refresh Google OAuth tokens daily"""
     try:
-        if async_session_maker is None:
-            init_engine()
-        
-        async with async_session_maker() as session:
+        if db_module.async_session_maker is None:
+            db_module.init_engine()
+        async with db_module.async_session_maker() as session:
             from app.models.call import UserSettings
             from sqlalchemy import select
             
@@ -245,7 +242,7 @@ async def refresh_oauth_tokens():
 def start_scheduler():
     """Start the background scheduler"""
     try:
-        init_engine()  # Ensure database is initialized
+        db_module.init_engine()  # Ensure database is initialized
         
         # Calendar sync: every 15 minutes
         scheduler.add_job(
@@ -281,10 +278,9 @@ def start_scheduler():
 async def sync_calendar_for_all_users():
     """Sync calendar for all users with calendar enabled"""
     try:
-        if async_session_maker is None:
-            init_engine()
-        
-        async with async_session_maker() as session:
+        if db_module.async_session_maker is None:
+            db_module.init_engine()
+        async with db_module.async_session_maker() as session:
             from app.models.call import UserSettings
             from sqlalchemy import select
             

@@ -24,7 +24,7 @@ from ..schemas.chat import ChatRequest, ChatResponse, ActionClickedRequest, Rese
 from ..schemas.document import DocumentResponse, DocumentUploadResponse
 from ..dependencies import get_llm_host, get_all_tools, get_user_sessions, initialize_mcp_clients
 from ..core.dependencies import get_db_session
-from ..core.database import async_session_maker, init_engine
+from ..core import database as db_module
 from ..core.config import get_settings
 from ..core.auth import AuthenticatedUser, require_tenant
 from ..services.rag.chunker import extract_text_from_file, chunk_text_token_based
@@ -116,11 +116,10 @@ async def chat(
     user_sessions = get_user_sessions()
     
     # Initialize database engine if needed
-    init_engine()
-    assert async_session_maker is not None
-    
+    db_module.init_engine()
+    assert db_module.async_session_maker is not None
     # Get or create conversation in database
-    async with async_session_maker() as db:
+    async with db_module.async_session_maker() as db:
         conversation = await get_or_create_conversation(
             db, user.tenant_id, session_id, user.sub
         )
@@ -207,7 +206,7 @@ async def chat(
             eve_reply = result['content']
             
             # Store messages in database
-            async with async_session_maker() as db:
+            async with db_module.async_session_maker() as db:
                 await create_message(
                     db, conversation_id, user.tenant_id, "user", user_message, None, None
                 )

@@ -10,7 +10,7 @@ from typing import Optional, Dict, Any
 import concurrent.futures
 import logging
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.core.database import async_session_maker, init_engine
+from app.core import database as db_module
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +44,8 @@ def sync_and_detect_meetings(
     # Create session for tools if not provided
     session_context = None
     if db_session is None:
-        if async_session_maker is None:
-            init_engine()
+        if db_module.async_session_maker is None:
+            db_module.init_engine()
         # Tools will create their own sessions via async_helper
     
     # Task 1: Sync calendar

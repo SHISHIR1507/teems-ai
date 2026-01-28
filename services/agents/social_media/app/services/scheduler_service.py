@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
-from app.core.database import init_engine, async_session_maker, Post
+from app.core import database as db_module
 from app.services.tiktok_service import TikTokService
 from app.services.realtime_notifier import (
     notify_posting_started,
@@ -30,18 +30,16 @@ async def process_scheduled_posts():
     Runs every minute to process posts where scheduled_at <= now() and status = 'scheduled'
     """
     try:
-        if async_session_maker is None:
-            init_engine()
-        
-        async with async_session_maker() as session:
+        if db_module.async_session_maker is None:
+            db_module.init_engine()
+        async with db_module.async_session_maker() as session:
             now = datetime.now(timezone.utc)
-            
             # Find all scheduled posts that are ready to be published
             result = await session.execute(
-                select(Post).where(
-                    Post.status == "scheduled",
-                    Post.scheduled_at <= now
-                ).order_by(Post.scheduled_at.asc())
+                select(db_module.Post).where(
+                    db_module.Post.status == "scheduled",
+                    db_module.Post.scheduled_at <= now
+                ).order_by(db_module.Post.scheduled_at.asc())
             )
             scheduled_posts = result.scalars().all()
             
@@ -162,8 +160,7 @@ async def process_scheduled_posts():
 def start_scheduler():
     """Start the background scheduler"""
     try:
-        init_engine()  # Ensure database is initialized
-        
+        db_module.init_engine()  # Ensure database is initialized
         # Process scheduled posts: every 1 minute
         scheduler.add_job(
             process_scheduled_posts,

@@ -4,7 +4,7 @@ Helper for running async code in sync context (for CrewAI tools)
 import asyncio
 from typing import Any, Coroutine
 import logging
-from app.core.database import async_session_maker, init_engine
+from app.core import database as db_module
 
 logger = logging.getLogger(__name__)
 
@@ -49,13 +49,11 @@ def get_db_session_sync():
     Returns:
         AsyncSession (but usable via run_async)
     """
-    if async_session_maker is None:
-        init_engine()
-    
+    if db_module.async_session_maker is None:
+        db_module.init_engine()
     # Create a new event loop for this session
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    
     # Create session
-    session = loop.run_until_complete(async_session_maker().__aenter__())
+    session = loop.run_until_complete(db_module.async_session_maker().__aenter__())
     return session, loop
