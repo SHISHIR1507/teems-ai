@@ -19,8 +19,8 @@ class RAGService:
     def __init__(self):
         self.embedding_provider = get_embedding_provider(settings)
         self.llm_client = AsyncOpenAI(
-            api_key=settings.aiml_api_key,
-            base_url=settings.aiml_base_url
+            api_key=settings.openai_api_key,
+            base_url=settings.openai_base_url
         )
     
     async def query(

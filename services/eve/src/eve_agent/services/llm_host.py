@@ -3,7 +3,7 @@ import requests
 from ..core.config import get_settings
 
 settings = get_settings()
-AIML_API_URL = f"{settings.aiml_base_url}/chat/completions"
+OPENAI_API_URL = f"{settings.openai_base_url}/chat/completions"
 
 
 class LLMHost:
@@ -26,7 +26,7 @@ class LLMHost:
         print(f"✓ Loaded {len(tools)} MCP tools")
         
     def call_llm(self, user_message, tools=None):
-        """Call AIML API with GPT-5.2"""
+        """Call OpenAI API for chat completions"""
         # Add user message to history (only if not empty)
         if user_message:
             self.conversation_history.append({
@@ -36,7 +36,7 @@ class LLMHost:
         
         # Prepare request payload
         payload = {
-            "model": "openai/gpt-5-2",
+            "model": settings.llm_model,
             "messages": self.conversation_history,
             "max_tokens": 2000,
             "temperature": 0.7
@@ -49,12 +49,12 @@ class LLMHost:
         
         # Make API call
         headers = {
-            "Authorization": f"Bearer {settings.aiml_api_key}",
+            "Authorization": f"Bearer {settings.openai_api_key}",
             "Content-Type": "application/json"
         }
         
         try:
-            response = requests.post(AIML_API_URL, headers=headers, json=payload)
+            response = requests.post(OPENAI_API_URL, headers=headers, json=payload)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.HTTPError as e:

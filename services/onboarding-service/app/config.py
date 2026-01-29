@@ -14,9 +14,13 @@ class Settings(BaseSettings):
     # Redis for pubsub events
     redis_url: str | None = None
 
-    # LLM Configuration (AIML API)
-    aiml_api_key: str
+    # LLM Configuration (AIML API - kept for backward compatibility)
+    aiml_api_key: str = ""
     aiml_base_url: str = "https://api.aimlapi.com/v1"
+    
+    # OpenAI Configuration
+    openai_api_key: str
+    openai_base_url: str = "https://api.openai.com/v1"
     default_llm_model: str = "openai/gpt-4o-mini"
 
     # Auth0

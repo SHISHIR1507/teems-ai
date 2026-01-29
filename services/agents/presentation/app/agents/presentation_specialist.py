@@ -3,7 +3,7 @@ Presentation Specialist Agent
 Main agent that understands requirements and coordinates tasks
 """
 from crewai import Agent, LLM
-from app.core.config import AIML_API_KEY, AIML_BASE_URL, LLM_MODEL
+from app.core.config import OPENAI_API_KEY, OPENAI_BASE_URL, LLM_MODEL
 from app.tools.generation_tools import (
     generate_presentation_from_text,
     generate_presentation_from_document,
@@ -14,16 +14,18 @@ from app.tools.document_tools import upload_document_to_slidespeak, check_docume
 from app.tools.template_tools import get_available_templates, get_branded_templates
 from app.tools.brand_tools import check_task_status, get_api_credits, get_presentation_download_url
 
-# Configure AIML LLM
-aiml_llm = LLM(
+# Configure OpenAI LLM
+openai_llm = LLM(
     model=LLM_MODEL,
-    base_url=AIML_BASE_URL,
-    api_key=AIML_API_KEY
+    base_url=OPENAI_BASE_URL,
+    api_key=OPENAI_API_KEY
 )
 
 
 def create_presentation_specialist_agent() -> Agent:
     """Create the Presentation Specialist agent"""
+    provider = "OpenAI" if "openai.com" in OPENAI_BASE_URL else "AIML" if "aimlapi" in OPENAI_BASE_URL else "Unknown"
+    print(f"🤖 Chat using: {provider} | URL: {OPENAI_BASE_URL} | Key: {OPENAI_API_KEY[:12]}...")
     return Agent(
         role="Presentation Specialist",
         goal="Help users create, edit, and manage PowerPoint presentations by understanding their requirements accurately and asking clarifying questions when needed",
@@ -53,6 +55,6 @@ def create_presentation_specialist_agent() -> Agent:
         ],
         verbose=True,
         allow_delegation=True,
-        llm=aiml_llm,
+        llm=openai_llm,
         max_iter=5
     )

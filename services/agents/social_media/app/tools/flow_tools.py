@@ -27,15 +27,15 @@ from app.services.realtime_notifier import (
 
 
 def _call_llm(prompt: str, system: str = "") -> str:
-    """Sync LLM call via AIML (OpenAI-compatible)."""
+    """Sync LLM call via OpenAI API."""
     s = get_settings()
     import requests
     messages = []
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
-    url = f"{s.aiml_base_url.rstrip('/')}/chat/completions"
-    headers = {"Authorization": f"Bearer {s.aiml_api_key}", "Content-Type": "application/json"}
+    url = f"{s.openai_base_url.rstrip('/')}/chat/completions"
+    headers = {"Authorization": f"Bearer {s.openai_api_key}", "Content-Type": "application/json"}
     body = {"model": s.llm_model, "messages": messages, "max_tokens": 1024}
     r = requests.post(url, json=body, headers=headers, timeout=30)
     r.raise_for_status()

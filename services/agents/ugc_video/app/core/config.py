@@ -27,7 +27,9 @@ S3_FOLDER_PREFIX = os.getenv("S3_FOLDER_PREFIX", "UGC_Agent")
 
 # API Keys
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-AIML_API_KEY = os.getenv("AIML_API_KEY")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o")
+AIML_API_KEY = os.getenv("AIML_API_KEY")  # Keep for image/video generation
 BANANA_API_KEY = os.getenv("BANANA_API_KEY")
 LIPSYNC_API_KEY = os.getenv("LIPSYNC_API_KEY")
 
@@ -46,9 +48,13 @@ class Settings(BaseSettings):
     s3_bucket_name: str = Field(default="teems-agents", alias="S3_BUCKET_NAME")
     s3_folder_prefix: str = Field(default="UGC_Agent", alias="S3_FOLDER_PREFIX")
     
-    # AI/ML API Keys
-    openai_api_key: str | None = Field(None, alias="OPENAI_API_KEY")
-    aiml_api_key: str = Field(..., alias="AIML_API_KEY")
+    # OpenAI API (for chat)
+    openai_api_key: str = Field(..., alias="OPENAI_API_KEY")
+    openai_base_url: str = Field(default="https://api.openai.com/v1", alias="OPENAI_BASE_URL")
+    llm_model: str = Field(default="gpt-4o", alias="LLM_MODEL")
+    
+    # AIML API (for image/video generation - keep on AIML)
+    aiml_api_key: str = Field(default="", alias="AIML_API_KEY")
     banana_api_key: str | None = Field(None, alias="BANANA_API_KEY")
     lipsync_api_key: str | None = Field(None, alias="LIPSYNC_API_KEY")
     

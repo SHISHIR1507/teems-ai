@@ -23,10 +23,14 @@ class Settings(BaseSettings):
     # Database
     database_url: str = Field(..., alias="DATABASE_URL")
     
-    # AIML API
-    aiml_api_key: str = Field(..., alias="AIML_API_KEY")
+    # AIML API (kept for image generation)
+    aiml_api_key: str = Field(default="", alias="AIML_API_KEY")
     aiml_base_url: str = Field(default="https://api.aimlapi.com/v1", alias="AIML_BASE_URL")
-    llm_model: str = Field(default="openai/gpt-4o", alias="LLM_MODEL")
+    
+    # OpenAI API (for chat)
+    openai_api_key: str = Field(..., alias="OPENAI_API_KEY")
+    openai_base_url: str = Field(default="https://api.openai.com/v1", alias="OPENAI_BASE_URL")
+    llm_model: str = Field(default="gpt-4o", alias="LLM_MODEL")
     
     # AWS S3
     aws_access_key_id: str | None = Field(None, alias="AWS_ACCESS_KEY_ID")

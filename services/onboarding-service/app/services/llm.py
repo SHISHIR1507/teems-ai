@@ -11,15 +11,22 @@ class LLMClient(ABC):
         ...
 
 
-class AIMLLLMClient(LLMClient):
-    """LLM client that talks to AIML API via the OpenAI-compatible SDK."""
+class OpenAILLM(LLMClient):
+    """LLM client that talks to OpenAI API."""
 
     def __init__(self, api_key: str, base_url: str):
         from openai import AsyncOpenAI
 
         self.client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+        self.api_key = api_key
+        self.base_url = base_url
 
     async def generate(self, messages: list[dict[str, str]], model: str, temperature: float = 0.7) -> str:
+        # Log which API is being used
+        provider = "AIML" if "aimlapi" in self.base_url else "OpenAI"
+        masked_key = f"{self.api_key[:8]}...{self.api_key[-4:]}" if len(self.api_key) > 12 else "***"
+        print(f"[{provider} API] Using key: {masked_key} | Base URL: {self.base_url}")
+
         response = await self.client.chat.completions.create(
             model=model,
             messages=messages,
@@ -35,12 +42,12 @@ class LLMService:
 
     def get_client(self) -> LLMClient:
         if self._client is None:
-            if not self.settings.aiml_api_key:
-                raise ValueError("AIML_API_KEY is required for LLM provider via AIML API")
+            if not self.settings.openai_api_key:
+                raise ValueError("OPENAI_API_KEY is required for LLM provider")
 
-            self._client = AIMLLLMClient(
-                api_key=self.settings.aiml_api_key,
-                base_url=self.settings.aiml_base_url,
+            self._client = OpenAILLM(
+                api_key=self.settings.openai_api_key,
+                base_url=self.settings.openai_base_url,
             )
 
         return self._client

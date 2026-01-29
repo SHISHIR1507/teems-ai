@@ -3,15 +3,15 @@ Brand Manager Agent
 Specialized agent for brand customization
 """
 from crewai import Agent, LLM
-from app.core.config import AIML_API_KEY, AIML_BASE_URL, LLM_MODEL
+from app.core.config import OPENAI_API_KEY, OPENAI_BASE_URL, LLM_MODEL
 from app.tools.template_tools import get_branded_templates
 from app.tools.brand_tools import get_api_credits
 
-# Configure AIML LLM
-aiml_llm = LLM(
+# Configure OpenAI LLM
+openai_llm = LLM(
     model=LLM_MODEL,
-    base_url=AIML_BASE_URL,
-    api_key=AIML_API_KEY
+    base_url=OPENAI_BASE_URL,
+    api_key=OPENAI_API_KEY
 )
 
 
@@ -34,6 +34,6 @@ def create_brand_manager_agent() -> Agent:
         ],
         verbose=True,
         allow_delegation=False,
-        llm=aiml_llm,
+        llm=openai_llm,
         max_iter=3
     )

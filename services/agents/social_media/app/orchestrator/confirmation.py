@@ -12,8 +12,8 @@ def _call_llm(prompt: str, system: str = "") -> str:
     if system:
         messages.append({"role": "system", "content": system})
     messages.append({"role": "user", "content": prompt})
-    url = f"{s.aiml_base_url.rstrip('/')}/chat/completions"
-    headers = {"Authorization": f"Bearer {s.aiml_api_key}", "Content-Type": "application/json"}
+    url = f"{s.openai_base_url.rstrip('/')}/chat/completions"
+    headers = {"Authorization": f"Bearer {s.openai_api_key}", "Content-Type": "application/json"}
     body = {"model": s.llm_model, "messages": messages, "max_tokens": 64}
     r = requests.post(url, json=body, headers=headers, timeout=15)
     r.raise_for_status()

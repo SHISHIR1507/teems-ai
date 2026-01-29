@@ -10,7 +10,7 @@ from typing import Type, Optional
 from pydantic import BaseModel, Field
 from crewai.tools import BaseTool
 from openai import OpenAI
-from app.core.config import AIML_API_KEY
+from app.core.config import OPENAI_API_KEY, OPENAI_BASE_URL, LLM_MODEL
 from app.services.s3_utils import upload_file_to_s3, get_s3_key_for_upload
 
 
@@ -124,7 +124,7 @@ No quotes. No labels.
         
         try:
             response = client.chat.completions.create(
-                model="openai/gpt-5-2",
+                model=LLM_MODEL,
                 messages=[
                     {
                         "role": "user",
@@ -135,7 +135,7 @@ No quotes. No labels.
                     }
                 ],
                 temperature=0.7,
-                max_tokens=100
+                max_tokens=200
             )
             
             return response.choices[0].message.content.strip()
@@ -172,13 +172,13 @@ No quotes. No labels.
         Returns:
             S3 URL of the saved script file
         """
-        # Initialize OpenAI client with AI/ML API
-        if not AIML_API_KEY:
-            return "Error: AIML_API_KEY environment variable not set"
+        # Initialize OpenAI client
+        if not OPENAI_API_KEY:
+            return "Error: OPENAI_API_KEY environment variable not set"
         
         client = OpenAI(
-            api_key=AIML_API_KEY,
-            base_url="https://api.aimlapi.com/v1"
+            api_key=OPENAI_API_KEY,
+            base_url=OPENAI_BASE_URL
         )
         
         # Stage 1: Generate dialogue using vision
@@ -309,9 +309,9 @@ Dialogue (lip motion): {dialogue}
 Use the visual identity from the UGC image reference. Create a script that showcases the product naturally and authentically while the creator speaks the dialogue. Let the brand context influence the visual energy and creator presence."""
         
         try:
-            # Call GPT-5.2 via AI/ML API
+            # Call GPT-4o
             response = client.chat.completions.create(
-                model="openai/gpt-5-2",
+                model=LLM_MODEL,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}

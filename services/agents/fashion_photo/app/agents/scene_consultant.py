@@ -9,10 +9,11 @@ from app.tools.vision_tools import VisionAnalysisTool
 from app.tools.scene_tools import FormatSceneSuggestionTool
 
 settings = get_settings()
-aiml_llm = LLM(
+# Use OpenAI for chat/agent LLM
+openai_llm = LLM(
     model=settings.llm_model,
-    base_url=settings.aiml_base_url,
-    api_key=settings.aiml_api_key,
+    base_url=settings.openai_base_url,
+    api_key=settings.openai_api_key,
 )
 
 
@@ -28,6 +29,6 @@ def create_scene_consultant_agent() -> Agent:
         tools=[VisionAnalysisTool(), FormatSceneSuggestionTool()],
         verbose=True,
         allow_delegation=False,
-        llm=aiml_llm,
+        llm=openai_llm,
         max_iter=3,
     )

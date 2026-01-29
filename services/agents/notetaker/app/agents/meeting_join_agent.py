@@ -12,11 +12,11 @@ from app.tools.meeting_tools import (
 
 settings = get_settings()
 
-# Configure AIML LLM
-aiml_llm = LLM(
+# Configure OpenAI LLM
+openai_llm = LLM(
     model=settings.llm_model,
-    base_url=settings.aiml_base_url,
-    api_key=settings.aiml_api_key
+    base_url=settings.openai_base_url,
+    api_key=settings.openai_api_key
 )
 
 
@@ -43,6 +43,6 @@ def create_meeting_join_agent() -> Agent:
         ],
         verbose=True,
         allow_delegation=False,
-        llm=aiml_llm,
+        llm=openai_llm,
         max_iter=3
     )

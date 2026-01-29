@@ -9,14 +9,17 @@ from app.tools.vision_tools import VisionAnalysisTool
 from app.tools.delegate_tools import SuggestSceneTool, GenerateImagesTool, EditImagesTool
 
 settings = get_settings()
-aiml_llm = LLM(
+# Use OpenAI for chat/agent LLM
+openai_llm = LLM(
     model=settings.llm_model,
-    base_url=settings.aiml_base_url,
-    api_key=settings.aiml_api_key,
+    base_url=settings.openai_base_url,
+    api_key=settings.openai_api_key,
 )
 
 
 def create_fashion_director_agent() -> Agent:
+    provider = "OpenAI" if "openai.com" in settings.openai_base_url else "AIML" if "aimlapi" in settings.openai_base_url else "Unknown"
+    print(f"🤖 Chat using: {provider} | URL: {settings.openai_base_url} | Key: {settings.openai_api_key[:12]}...")
     return Agent(
         role="Fashion Director",
         goal="Guide users through fashion photography: apparel → avatar → scene → generate → edit. No hallucination; use only tools and context.",
@@ -31,6 +34,6 @@ You never invent URLs, scenes, or facts. Use only what tools return and what app
         ],
         verbose=True,
         allow_delegation=False,
-        llm=aiml_llm,
+        llm=openai_llm,
         max_iter=8,
     )

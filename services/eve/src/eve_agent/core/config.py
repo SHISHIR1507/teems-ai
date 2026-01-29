@@ -27,11 +27,18 @@ class Settings(BaseSettings):
     auth0_audience: str = Field(..., alias="AUTH0_AUDIENCE")
     auth0_algorithm: str = Field(default="RS256", alias="AUTH0_ALGORITHM")
     
-    # AIML API Configuration
-    aiml_api_key: str = Field(..., alias="AIML_API_KEY")
+    # AIML API Configuration (kept for OCR which stays on AIML)
+    aiml_api_key: str = Field(default="", alias="AIML_API_KEY")
     aiml_base_url: str = Field(
         default="https://api.aimlapi.com/v1",
         alias="AIML_BASE_URL"
+    )
+    
+    # OpenAI API Configuration (for chat and embeddings)
+    openai_api_key: str = Field(..., alias="OPENAI_API_KEY")
+    openai_base_url: str = Field(
+        default="https://api.openai.com/v1",
+        alias="OPENAI_BASE_URL"
     )
     
     # MCP Configuration

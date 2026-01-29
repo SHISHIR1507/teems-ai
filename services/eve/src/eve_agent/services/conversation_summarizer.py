@@ -58,15 +58,15 @@ Conversation:
 Summary:"""
     
     try:
-        # Call AIML API for summarization
-        aiml_url = f"{settings.aiml_base_url}/chat/completions"
+        # Call OpenAI API for summarization
+        openai_url = f"{settings.openai_base_url}/chat/completions"
         headers = {
-            "Authorization": f"Bearer {settings.aiml_api_key}",
+            "Authorization": f"Bearer {settings.openai_api_key}",
             "Content-Type": "application/json"
         }
         
         payload = {
-            "model": "openai/gpt-4o-mini",
+            "model": "gpt-4o-mini",
             "messages": [
                 {
                     "role": "system",
@@ -82,7 +82,7 @@ Summary:"""
         }
         
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(aiml_url, headers=headers, json=payload)
+            response = await client.post(openai_url, headers=headers, json=payload)
             response.raise_for_status()
             
             result = response.json()

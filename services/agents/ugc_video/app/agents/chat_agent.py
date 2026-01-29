@@ -2,7 +2,7 @@
 Chat Agent (Kai) - Conversational UGC creator and creative director
 """
 from crewai import Agent, LLM
-from app.core.config import AIML_API_KEY, LANGCHAIN_PROJECT
+from app.core.config import OPENAI_API_KEY, OPENAI_BASE_URL, LLM_MODEL, LANGCHAIN_PROJECT
 import os
 import langsmith
 from langsmith import traceable
@@ -15,23 +15,27 @@ os.environ["LANGCHAIN_PROJECT"] = LANGCHAIN_PROJECT
 @traceable(
     name="create_chat_agent",
     tags=["agent-creation", "crewai", "chat"],
-    metadata={"model": "gpt-5-2", "provider": "aiml-api", "mode": "chat"}
+    metadata={"model": LLM_MODEL, "provider": "openai", "mode": "chat"}
 )
 def create_chat_agent():
     """
     Create Kai - a conversational UGC creator and creative director
     """
+    # Log which API is being used
+    provider = "OpenAI" if "openai.com" in OPENAI_BASE_URL else "AIML" if "aimlapi" in OPENAI_BASE_URL else "Unknown"
+    print(f"🤖 Chat using: {provider} | URL: {OPENAI_BASE_URL} | Key: {OPENAI_API_KEY[:12]}...")
+    
     with langsmith.trace(
         name="configure_chat_llm",
-        tags=["llm-configuration", "gpt-5.2", "chat"]
+        tags=["llm-configuration", "openai", "chat"]
     ) as llm_trace:
         llm = LLM(
-            model="gpt-5.2-2025-12-11",
-            api_key=AIML_API_KEY,
-            base_url="https://api.aimlapi.com/v1",
+            model=LLM_MODEL,
+            api_key=OPENAI_API_KEY,
+            base_url=OPENAI_BASE_URL,
             temperature=0.7
         )
-        llm_trace.outputs = {"llm": "gpt-5.2-2025-12-11"}
+        llm_trace.outputs = {"llm": LLM_MODEL}
 
     agent = Agent(
         role="Kai - Senior UGC Creator",

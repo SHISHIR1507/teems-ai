@@ -8,11 +8,11 @@ from app.tools.facebook_tools import post_to_facebook, get_facebook_posts
 
 settings = get_settings()
 
-# Configure AIML LLM
-aiml_llm = LLM(
+# Configure OpenAI LLM
+openai_llm = LLM(
     model=settings.llm_model,
-    base_url=settings.aiml_base_url,
-    api_key=settings.aiml_api_key
+    base_url=settings.openai_base_url,
+    api_key=settings.openai_api_key
 )
 
 
@@ -35,6 +35,6 @@ def create_facebook_specialist_agent() -> Agent:
         ],
         verbose=True,
         allow_delegation=False,
-        llm=aiml_llm,
+        llm=openai_llm,
         max_iter=3
     )

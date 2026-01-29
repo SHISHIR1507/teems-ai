@@ -52,4 +52,4 @@ python-jose[cryptography]==3.3.0
 
 # Jinja2 for templates (FastAPI)
 jinja2==3.1.4
-
+greenlet>=3.0.0

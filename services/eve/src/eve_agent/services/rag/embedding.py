@@ -16,8 +16,8 @@ class EmbeddingProvider(ABC):
         return (await self.embed([text]))[0]
 
 
-class AIMLEmbeddingProvider(EmbeddingProvider):
-    """Embedding provider that talks to AIML API via the OpenAI-compatible SDK."""
+class OpenAIEmbeddingProvider(EmbeddingProvider):
+    """Embedding provider that uses OpenAI API directly."""
 
     def __init__(self, api_key: str, base_url: str, model: str):
         from openai import AsyncOpenAI
@@ -32,21 +32,20 @@ class AIMLEmbeddingProvider(EmbeddingProvider):
 
 def get_embedding_provider(settings) -> EmbeddingProvider:
     """
-    Factory for embeddings via AIML API.
+    Factory for embeddings via OpenAI API.
 
-    We keep `EMBEDDING_PROVIDER` (`openai` or `gemini`) for configuration symmetry,
-    but both paths use the AIML API key and base URL. The actual model string
-    (`EMBEDDING_MODEL`) determines which underlying model you hit (OpenAI, Gemini, etc.)
-    as documented in the AIML API docs: `https://docs.aimlapi.com/quickstart/setting-up`.
+    The model string (`EMBEDDING_MODEL`) determines which embedding model to use.
+    Default is `text-embedding-3-small`.
     """
     if settings.embedding_provider not in ("openai", "gemini"):
         raise ValueError(f"Unsupported embedding provider: {settings.embedding_provider}")
 
-    if not settings.aiml_api_key:
-        raise ValueError("AIML_API_KEY is required for embeddings via AIML API")
+    if not settings.openai_api_key:
+        raise ValueError("OPENAI_API_KEY is required for embeddings")
 
-    return AIMLEmbeddingProvider(
-        api_key=settings.aiml_api_key,
-        base_url=settings.aiml_base_url,
+    return OpenAIEmbeddingProvider(
+        api_key=settings.openai_api_key,
+        base_url=settings.openai_base_url,
         model=settings.embedding_model,
     )
+

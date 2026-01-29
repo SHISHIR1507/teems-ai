@@ -20,8 +20,8 @@ def analyze_content(content_url: str, asset_type: str = "image") -> str:
         Vision analysis description (2-3 sentences)
     """
     settings = get_settings()
-    url = f"{settings.aiml_base_url.rstrip('/')}/chat/completions"
-    headers = {"Authorization": f"Bearer {settings.aiml_api_key}", "Content-Type": "application/json"}
+    url = f"{settings.openai_base_url.rstrip('/')}/chat/completions"
+    headers = {"Authorization": f"Bearer {settings.openai_api_key}", "Content-Type": "application/json"}
     
     # For videos, we analyze as image (most vision APIs can handle video URLs or first frame)
     # If the API doesn't support video, we'll get an error and handle gracefully

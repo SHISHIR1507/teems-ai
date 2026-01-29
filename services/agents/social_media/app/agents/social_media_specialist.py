@@ -10,16 +10,18 @@ from app.tools.platform_tools import get_user_posts, get_connected_platforms
 
 settings = get_settings()
 
-# Configure AIML LLM
-aiml_llm = LLM(
+# Configure OpenAI LLM
+openai_llm = LLM(
     model=settings.llm_model,
-    base_url=settings.aiml_base_url,
-    api_key=settings.aiml_api_key
+    base_url=settings.openai_base_url,
+    api_key=settings.openai_api_key
 )
 
 
 def create_social_media_specialist_agent() -> Agent:
     """Create the Social Media Specialist agent"""
+    provider = "OpenAI" if "openai.com" in settings.openai_base_url else "AIML" if "aimlapi" in settings.openai_base_url else "Unknown"
+    print(f"🤖 Chat using: {provider} | URL: {settings.openai_base_url} | Key: {settings.openai_api_key[:12]}...")
     return Agent(
         role="Social Media Specialist",
         goal="Help users post videos to multiple social media platforms (TikTok, Facebook) by understanding their requirements accurately and asking clarifying questions when needed",
@@ -56,6 +58,6 @@ def create_social_media_specialist_agent() -> Agent:
         ],
         verbose=True,
         allow_delegation=True,
-        llm=aiml_llm,
+        llm=openai_llm,
         max_iter=5
     )

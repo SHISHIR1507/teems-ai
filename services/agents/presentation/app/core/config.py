@@ -10,10 +10,14 @@ load_dotenv()
 SLIDESPEAK_API_KEY = os.getenv("SLIDESPEAK_API_KEY")
 SLIDESPEAK_BASE_URL = os.getenv("SLIDESPEAK_BASE_URL", "https://api.slidespeak.co/api/v1/")
 
-# AIML API Configuration (for LLM)
-AIML_API_KEY = os.getenv("AIML_API_KEY")
+# AIML API Configuration (kept for backward compatibility)
+AIML_API_KEY = os.getenv("AIML_API_KEY", "")
 AIML_BASE_URL = os.getenv("AIML_BASE_URL", "https://api.aimlapi.com/v1")
-LLM_MODEL = os.getenv("LLM_MODEL", "openai/gpt-4o")
+
+# OpenAI API Configuration (for LLM)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o")
 
 # AWS S3 Configuration
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
@@ -56,10 +60,14 @@ class Settings(BaseSettings):
     slidespeak_api_key: str = Field(..., alias="SLIDESPEAK_API_KEY")
     slidespeak_base_url: str = Field(default="https://api.slidespeak.co/api/v1/", alias="SLIDESPEAK_BASE_URL")
     
-    # AIML API
-    aiml_api_key: str = Field(..., alias="AIML_API_KEY")
+    # AIML API (kept for backward compatibility)
+    aiml_api_key: str = Field(default="", alias="AIML_API_KEY")
     aiml_base_url: str = Field(default="https://api.aimlapi.com/v1", alias="AIML_BASE_URL")
-    llm_model: str = Field(default="openai/gpt-4o", alias="LLM_MODEL")
+    
+    # OpenAI API (for chat)
+    openai_api_key: str = Field(..., alias="OPENAI_API_KEY")
+    openai_base_url: str = Field(default="https://api.openai.com/v1", alias="OPENAI_BASE_URL")
+    llm_model: str = Field(default="gpt-4o", alias="LLM_MODEL")
     
     # AWS S3
     aws_region: str = Field(default="us-east-1", alias="AWS_REGION")

@@ -11,4 +11,4 @@ loguru>=0.7,<0.8
 redis>=5.0,<6.0
 python-jose[cryptography]>=3.3,<4.0
 openai>=1.0,<2.0
-
+greenlet>=3.0.0

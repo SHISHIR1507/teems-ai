@@ -1,5 +1,5 @@
 """
-AIML LLM service
+OpenAI LLM service
 """
 import requests
 from typing import List, Dict
@@ -9,22 +9,23 @@ from app.core.config import get_settings
 logger = logging.getLogger(__name__)
 
 
-class AIMLLLM:
-    """Service for LLM generation using AIML API"""
+class OpenAILLM:
+    """Service for LLM generation using OpenAI API"""
     
     def __init__(self):
         settings = get_settings()
-        self.api_key = settings.aiml_api_key
-        self.base_url = settings.aiml_base_url
+        self.api_key = settings.openai_api_key
+        self.base_url = settings.openai_base_url
         self.model = settings.llm_model
         
         if not self.api_key:
-            logger.warning("AIML_API_KEY not found. Using dummy LLM.")
+            logger.warning("OPENAI_API_KEY not found. Using dummy LLM.")
             self.use_dummy = True
             return
         
         self.use_dummy = False
-        logger.info(f"Using AIML LLM (model: {self.model})")
+        provider = "OpenAI" if "openai.com" in self.base_url else "AIML" if "aimlapi" in self.base_url else "Unknown"
+        logger.info(f"Using {provider} LLM (model: {self.model})")
     
     async def generate(self, messages: List[Dict], model: str = None) -> str:
         if self.use_dummy:
@@ -58,11 +59,12 @@ class AIMLLLM:
                 data = response.json()
                 return data["choices"][0]["message"]["content"]
             else:
-                logger.error(f"AIML LLM Error {response.status_code}: {response.text[:200]}")
+                logger.error(f"OpenAI LLM Error {response.status_code}: {response.text[:200]}")
                 return f"API Error {response.status_code}. Check logs."
                 
         except Exception as e:
             logger.error(f"LLM Connection error: {e}", exc_info=True)
             return f"Connection error: {str(e)[:100]}"
 
-llm = AIMLLLM()
+llm = OpenAILLM()
+

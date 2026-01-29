@@ -8,19 +8,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-class AIMLEmbedder:
+class OpenAIEmbedder:
     def __init__(self):
-        self.api_key = os.getenv("AIML_API_KEY")
-        self.base_url = os.getenv("AIML_BASE_URL", "https://api.aimlapi.com/v1")
+        self.api_key = os.getenv("OPENAI_API_KEY")
+        self.base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
         self.model = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
         
         if not self.api_key:
-            print("AIML_API_KEY not found in .env")
+            print("OPENAI_API_KEY not found in .env")
             self.use_dummy = True
             return
         
         self.use_dummy = False
-        print(f"Using AIML embeddings (model: {self.model})")
+        print(f"Using OpenAI embeddings (model: {self.model})")
     
     async def embed(self, texts: List[str]) -> List[List[float]]:
         if self.use_dummy or not texts:
@@ -55,7 +55,7 @@ class AIMLEmbedder:
                 print(f" Got {len(embeddings)} embeddings ({len(embeddings[0])} dimensions)")
                 return embeddings
             else:
-                print(f" AIML API Error {response.status_code}: {response.text[:200]}")
+                print(f" OpenAI API Error {response.status_code}: {response.text[:200]}")
                 return [[0.1] * 1536 for _ in texts]
                 
         except Exception as e:
@@ -66,4 +66,4 @@ class AIMLEmbedder:
         embeddings = await self.embed([text])
         return embeddings[0] if embeddings else [0.1] * 1536
 
-embedder = AIMLEmbedder()
+embedder = OpenAIEmbedder()

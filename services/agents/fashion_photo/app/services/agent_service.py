@@ -6,10 +6,11 @@ from langsmith import traceable
 @traceable
 def create_agent_and_crew(session: dict, assets: list, visual_context: str, history_text: str, message: str):
     """Create CrewAI agent and crew, then kickoff the task."""
-    aiml_llm = LLM(
-        model="openai/gpt-4o",
-        base_url="https://api.aimlapi.com/v1",
-        api_key=settings.AIML_API_KEY
+    # Use OpenAI for chat/agent LLM
+    openai_llm = LLM(
+        model=settings.llm_model,
+        base_url=settings.openai_base_url,
+        api_key=settings.openai_api_key
     )
     
     visual_creator = Agent(
@@ -34,7 +35,7 @@ def create_agent_and_crew(session: dict, assets: list, visual_context: str, hist
            CRITICAL: Verify you include the LAST generated image URL in the tool input for consistency if editing.
         """,
         tools=[ImageGenerationTool()],
-        llm=aiml_llm
+        llm=openai_llm
     )
     
     task_desc = f"""

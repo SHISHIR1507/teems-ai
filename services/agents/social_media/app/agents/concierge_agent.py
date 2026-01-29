@@ -11,10 +11,10 @@ from app.tools.flow_tools import (
 from app.tools.platform_tools import get_connected_platforms, get_user_posts
 
 settings = get_settings()
-aiml_llm = LLM(
+openai_llm = LLM(
     model=settings.llm_model,
-    base_url=settings.aiml_base_url,
-    api_key=settings.aiml_api_key,
+    base_url=settings.openai_base_url,
+    api_key=settings.openai_api_key,
 )
 
 
@@ -36,6 +36,6 @@ If they ask for history or connected platforms, use get_user_posts or get_connec
         tools=tools,
         verbose=True,
         allow_delegation=False,
-        llm=aiml_llm,
+        llm=openai_llm,
         max_iter=6,
     )

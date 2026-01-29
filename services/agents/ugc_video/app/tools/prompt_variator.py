@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 import langsmith
 from langsmith import traceable
 from openai import OpenAI
-from app.core.config import AIML_API_KEY
+from app.core.config import OPENAI_API_KEY, OPENAI_BASE_URL, LLM_MODEL
 
 
 class PromptVariatorInput(BaseModel):
@@ -34,8 +34,8 @@ class PromptVariatorTool(BaseTool):
 
     @traceable(
         name="prompt_variator_tool",
-        tags=["prompt-variation", "gpt-5.2", "vision"],
-        metadata={"model": "gpt-5.2-2025-12-11", "num_variants": 4}
+        tags=["prompt-variation", "gpt-4o", "vision"],
+        metadata={"model": "gpt-4o", "num_variants": 4}
     )
     def _run(
         self, 
@@ -72,8 +72,8 @@ class PromptVariatorTool(BaseTool):
             tags=["llm-initialization"]
         ) as init_trace:
             client = OpenAI(
-                api_key=AIML_API_KEY,
-                base_url="https://api.aimlapi.com/v1"
+                api_key=OPENAI_API_KEY,
+                base_url=OPENAI_BASE_URL
             )
             init_trace.outputs = {"client": "OpenAI"}
 
@@ -214,7 +214,7 @@ Vibe: {vibe}
         ) as llm_trace:
             try:
                 response = client.chat.completions.create(
-                    model="gpt-5.2-2025-12-11",
+                    model=LLM_MODEL,
                     messages=[
                         {"role": "system", "content": system_instruction},
                         {

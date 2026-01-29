@@ -34,9 +34,13 @@ class Settings(BaseSettings):
     nylas_api_key: str = Field(..., alias="NYLAS_API_KEY")
     nylas_base_url: str = Field(default="https://api.us.nylas.com", alias="NYLAS_BASE_URL")
     
-    # AIML API (for embeddings and LLM)
-    aiml_api_key: str = Field(..., alias="AIML_API_KEY")
+    # AIML API (kept for backward compatibility)
+    aiml_api_key: str = Field(default="", alias="AIML_API_KEY")
     aiml_base_url: str = Field(default="https://api.aimlapi.com/v1", alias="AIML_BASE_URL")
+    
+    # OpenAI API (for chat and embeddings)
+    openai_api_key: str = Field(..., alias="OPENAI_API_KEY")
+    openai_base_url: str = Field(default="https://api.openai.com/v1", alias="OPENAI_BASE_URL")
     embedding_model: str = Field(default="text-embedding-3-small", alias="EMBEDDING_MODEL")
     llm_model: str = Field(default="gpt-4o", alias="LLM_MODEL")
     

@@ -3,7 +3,7 @@ Image Generator Agent - Generates 4 UGC images from prompts
 """
 from crewai import Agent, LLM
 from app.tools.banana_ugc import BananaUGCTool
-from app.core.config import AIML_API_KEY
+from app.core.config import OPENAI_API_KEY, OPENAI_BASE_URL, LLM_MODEL
 import langsmith
 from langsmith import traceable
 
@@ -26,15 +26,15 @@ def create_image_generator_agent():
 
     with langsmith.trace(
         name="configure_image_llm",
-        tags=["llm-configuration", "gpt-5.2"]
+        tags=["llm-configuration", "openai"]
     ) as llm_trace:
         llm = LLM(
-            model="gpt-5.2-2025-12-11",
-            api_key=AIML_API_KEY,
-            base_url="https://api.aimlapi.com/v1",
+            model=LLM_MODEL,
+            api_key=OPENAI_API_KEY,
+            base_url=OPENAI_BASE_URL,
             temperature=0.7
         )
-        llm_trace.outputs = {"llm": "gpt-5.2-2025-12-11"}
+        llm_trace.outputs = {"llm": LLM_MODEL}
 
     agent = Agent(
         role="UGC Image Generator",
