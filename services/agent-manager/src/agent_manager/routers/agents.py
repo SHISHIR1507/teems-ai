@@ -39,6 +39,61 @@ async def get_agent_categories(
     return AgentCategoriesResponse(categories=categories)
 
 
+@router.get("/my-agents", response_model=AgentListResponse, summary="Get agents assigned to current user")
+async def get_my_agents(
+    page: int = Query(1, ge=1, description="Page number"),
+    size: int = Query(20, ge=1, le=100, description="Items per page"),
+    category: Optional[str] = Query(None, description="Filter by category"),
+    user: AuthenticatedUser = Depends(require_tenant()),
+    db: AsyncSession = Depends(get_db_session),
+):
+    """
+    Return a paginated list of agents that are assigned to the current user.
+    """
+    # Get agent IDs assigned to this user
+    assignment_query = select(AgentAssignment.agent_id).where(
+        and_(
+            AgentAssignment.tenant_id == user.tenant_id,
+            AgentAssignment.user_id == user.sub,
+        )
+    )
+    
+    # Base query for agents that are assigned to this user
+    query = select(Agent).where(Agent.id.in_(assignment_query))
+    if category:
+        query = query.where(Agent.category == category)
+
+    # Total count for pagination
+    count_query = select(func.count()).select_from(Agent).where(Agent.id.in_(assignment_query))
+    if category:
+        count_query = count_query.where(Agent.category == category)
+
+    total_result = await db.execute(count_query)
+    total = total_result.scalar_one()
+
+    # Apply pagination and ordering
+    offset = (page - 1) * size
+    query = query.offset(offset).limit(size).order_by(Agent.created_at.desc())
+
+    # Execute main agent query
+    result = await db.execute(query)
+    agents: List[Agent] = result.scalars().all()
+
+    # Convert to response items
+    agent_items: List[AgentListItem] = []
+    for agent in agents:
+        item = AgentListItem.from_orm(agent)
+        item.is_assigned_to_current_user = True  # All are assigned since this is my-agents
+        agent_items.append(item)
+
+    return AgentListResponse(
+        agents=agent_items,
+        total=total,
+        page=page,
+        size=size,
+    )
+
+
 @router.get("/", response_model=AgentListResponse, summary="Get all agents")
 async def get_agents(
     page: int = Query(1, ge=1, description="Page number"),
@@ -229,18 +284,28 @@ async def assign_agent(
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
+    # Check if assignment already exists
+    existing_query = select(AgentAssignment).where(
+        and_(
+            AgentAssignment.agent_id == agent.id,
+            AgentAssignment.tenant_id == user.tenant_id,
+            AgentAssignment.user_id == user.sub,
+        )
+    )
+    existing_result = await db.execute(existing_query)
+    existing_assignment = existing_result.scalar_one_or_none()
+    
+    if existing_assignment:
+        # Already assigned, return the existing assignment
+        return AgentAssignmentResponse.from_orm(existing_assignment)
+
+    # Create new assignment
     assignment = AgentAssignment(
         agent_id=agent.id,
         tenant_id=user.tenant_id,
         user_id=user.sub,
     )
     db.add(assignment)
-    try:
-        await db.commit()
-    except Exception:
-        await db.rollback()
-        # Unique constraint to avoid duplicate assignment
-        raise
+    await db.commit()
     await db.refresh(assignment)
     return AgentAssignmentResponse.from_orm(assignment)
-
