@@ -45,6 +45,10 @@ Parameters:
     Type: String
     Default: gpt-4o
     Description: LLM model name
+  OpenAIApiKey:
+    Type: String
+    Default: ""
+    Description: OpenAI API key for chat and embeddings
   Auth0Domain:
     Type: String
     Default: ""
@@ -287,6 +291,8 @@ Resources:
               Value: !Ref EncryptionKey
             - Name: CORS_ALLOWED_ORIGINS
               Value: !Ref CORSAllowedOrigins
+            - Name: OPENAI_API_KEY
+              Value: !Ref OpenAIApiKey
           LogConfiguration:
             LogDriver: awslogs
             Options:

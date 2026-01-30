@@ -338,6 +338,7 @@ jobs:
           AUTH0_ALGORITHM: ${{ secrets.AUTH0_ALGORITHM || secrets.PRESENTATION_AUTH0_ALGORITHM || 'RS256' }}
           CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS || secrets.PRESENTATION_CORS_ALLOWED_ORIGINS || '' }}
           SSL_CERTIFICATE_ARN: ${{ secrets.SSL_CERTIFICATE_ARN || secrets.PRESENTATION_SSL_CERTIFICATE_ARN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || secrets.PRESENTATION_OPENAI_API_KEY }}
         run: |
           set -e
           
@@ -368,6 +369,11 @@ jobs:
           
           if [[ -z "${AIML_API_KEY}" ]]; then
             echo "::error::AIML_API_KEY is required. Set AIML_API_KEY or PRESENTATION_AIML_API_KEY in GitHub secrets."
+            exit 1
+          fi
+
+          if [[ -z "${OPENAI_API_KEY}" ]]; then
+            echo "::error::OPENAI_API_KEY is required. Set OPENAI_API_KEY or PRESENTATION_OPENAI_API_KEY in GitHub secrets."
             exit 1
           fi
           
@@ -415,6 +421,7 @@ jobs:
               SharedVPCId="${VPC_ID}" \
               SharedSubnet1Id="${SUBNET1_ID}" \
               SharedSubnet2Id="${SUBNET2_ID}" \
+              OpenAIApiKey="${OPENAI_API_KEY}" \
             --no-fail-on-empty-changeset
 
       - name: Show stack events on failure

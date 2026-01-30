@@ -226,6 +226,7 @@ jobs:
           BRANDFETCH_API_URL: ${{ secrets.BRANDFETCH_API_URL || 'http://teems-brandfetch-alb-default.us-east-1.elb.amazonaws.com' }}
           CORS_ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS || secrets.ONBOARDING_CORS_ALLOWED_ORIGINS || '' }}
           SSL_CERTIFICATE_ARN: ${{ secrets.SSL_CERTIFICATE_ARN || secrets.ONBOARDING_SSL_CERTIFICATE_ARN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || secrets.ONBOARDING_OPENAI_API_KEY }}
         run: |
           set -e
           aws cloudformation deploy \
@@ -249,6 +250,7 @@ jobs:
               BrandfetchApiUrl="${BRANDFETCH_API_URL:-}" \
               CORSAllowedOrigins="${CORS_ALLOWED_ORIGINS:-}" \
               SSLCertificateArn="${SSL_CERTIFICATE_ARN:-}" \
+              OpenAIApiKey="${OPENAI_API_KEY:-}" \
             --no-fail-on-empty-changeset
 
       - name: Show stack events on failure

@@ -37,6 +37,10 @@ Parameters:
     Type: String
     Default: "openai/gpt-4o-mini"
     Description: Default LLM model for onboarding chat
+  OpenAIApiKey:
+    Type: String
+    Default: ""
+    Description: OpenAI API key for chat and embeddings
   Auth0Domain:
     Type: String
     Default: ""
@@ -240,6 +244,8 @@ Resources:
               Value: !Ref BrandfetchApiUrl
             - Name: CORS_ALLOWED_ORIGINS
               Value: !Ref CORSAllowedOrigins
+            - Name: OPENAI_API_KEY
+              Value: !Ref OpenAIApiKey
           LogConfiguration:
             LogDriver: awslogs
             Options:

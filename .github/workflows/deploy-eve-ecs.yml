@@ -337,6 +337,7 @@ jobs:
           AUTH0_AUDIENCE: ${{ secrets.AUTH0_AUDIENCE || secrets.EVE_AUTH0_AUDIENCE }}
           AUTH0_ALGORITHM: ${{ secrets.AUTH0_ALGORITHM || secrets.EVE_AUTH0_ALGORITHM || 'RS256' }}
           POSTGRES_MCP_PASSWORD: ${{ secrets.POSTGRES_MCP_PASSWORD || secrets.EVE_POSTGRES_MCP_PASSWORD || '' }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY || secrets.EVE_OPENAI_API_KEY }}
         run: |
           set -e
           
@@ -374,6 +375,11 @@ jobs:
             echo "::error::AUTH0_AUDIENCE is required. Set AUTH0_AUDIENCE or EVE_AUTH0_AUDIENCE in GitHub secrets."
             exit 1
           fi
+
+          if [[ -z "${OPENAI_API_KEY}" ]]; then
+            echo "::error::OPENAI_API_KEY is required. Set OPENAI_API_KEY or EVE_OPENAI_API_KEY in GitHub secrets."
+            exit 1
+          fi
           
           echo "Deploying Eve AI stack with shared VPC resources..."
           echo "  VPC: ${VPC_ID}"
@@ -407,6 +413,7 @@ jobs:
               SharedVPCId="${VPC_ID}" \
               SharedSubnet1Id="${SUBNET1_ID}" \
               SharedSubnet2Id="${SUBNET2_ID}" \
+              OpenAIApiKey="${OPENAI_API_KEY}" \
             --no-fail-on-empty-changeset
 
       - name: Show stack events on failure

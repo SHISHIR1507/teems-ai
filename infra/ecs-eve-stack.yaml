@@ -45,6 +45,10 @@ Parameters:
     Type: String
     Default: ""
     Description: Tavily API key for web search (optional)
+  OpenAIApiKey:
+    Type: String
+    Default: ""
+    Description: OpenAI API key for chat and embeddings
   CORSAllowedOrigins:
     Type: String
     Default: ""
@@ -279,6 +283,8 @@ Resources:
               Value: "https://api.aimlapi.com/v1"
             - Name: TAVILY_API
               Value: !Ref TavilyApiKey
+            - Name: OPENAI_API_KEY
+              Value: !Ref OpenAIApiKey
             - Name: AWS_REGION
               Value: !Ref AWSRegion
             - Name: S3_BUCKET_NAME
