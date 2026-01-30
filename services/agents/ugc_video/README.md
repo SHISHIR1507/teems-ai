@@ -2,6 +2,24 @@
 
 An agentic workflow system for generating User-Generated Content (UGC) videos with AI. Uses CrewAI agents to orchestrate script generation, audio synthesis, image generation, and video creation with PostgreSQL persistence and AWS S3 storage.
 
+## Tech Stack
+
+### Backend
+- **Framework**: FastAPI with async/await support
+- **AI Orchestration**: CrewAI for multi-agent workflows
+- **LLMs**: OpenAI GPT-4o, Google Gemini (via google-genai)
+- **Database**: PostgreSQL with SQLAlchemy (async)
+- **Storage**: AWS S3 for all media assets
+- **Observability**: LangSmith for agent tracing
+- **Authentication**: Auth0 JWT with tenant isolation
+
+### Frontend
+- **Framework**: React 18 with TypeScript
+- **Build Tool**: Vite
+- **Styling**: Tailwind CSS
+- **HTTP Client**: Axios
+- **State Management**: React hooks
+
 ## 🏗️ Architecture
 
 The service follows FastAPI and CrewAI best practices with a clean, modular structure:
@@ -43,26 +61,31 @@ app/
 ## 📋 Prerequisites
 
 - Python 3.9+
+- Node.js 18+ and npm (for frontend)
 - PostgreSQL database (running locally or remotely)
 - AWS S3 bucket with appropriate credentials
-- Auth0 account (already configured) for authentication
+- Auth0 account for authentication
 - API keys for:
-  - OpenAI/AIML API (for agents and GPT-5.2)
+  - OpenAI API (for GPT-4o agents and script generation)
+  - Google Gemini API (for image generation via google-genai)
+  - AIML API (for Veo 3.1 video generation)
+  - ElevenLabs API (for text-to-speech audio)
   - LangSmith (for tracing and observability)
   - Optional: LIPSYNC_API_KEY (for lipsync feature)
 
 ## 🚀 Local Setup
 
-### 1. Install Dependencies
+### Backend Setup
+
+#### 1. Install Python Dependencies
 
 ```bash
-cd services/agents/ugc_video
 pip install -r requirements.txt
 ```
 
-### 2. Configure Environment Variables
+#### 2. Configure Backend Environment Variables
 
-Create a `.env` file in the `ugc_video` directory:
+Create a `.env` file in the `app/` directory:
 
 ```env
 # Database
@@ -76,26 +99,30 @@ S3_BUCKET_NAME=your-bucket-name
 S3_FOLDER_PREFIX=UGC_Agent
 
 # AI/ML APIs
+OPENAI_API_KEY=your_openai_key
+OPENAI_BASE_URL=https://api.openai.com/v1
+LLM_MODEL=gpt-4o
 AIML_API_KEY=your_aiml_api_key
-OPENAI_API_KEY=your_openai_key  # Optional, if using OpenAI directly
+GEMINI_API_KEY=your_gemini_api_key
+ELEVENLABS_API_KEY=your_elevenlabs_key
 
 # LangSmith (for observability)
 LANGCHAIN_API_KEY=your_langsmith_key
 LANGCHAIN_TRACING_V2=true
 LANGCHAIN_PROJECT=ugc-orchestrator
 
-# Auth0 (for authentication - already configured)
+# Auth0 (for authentication)
 AUTH0_DOMAIN=your-auth0-domain.auth0.com
 AUTH0_AUDIENCE=your-api-audience
 
-# CORS Configuration (optional)
-CORS_ALLOWED_ORIGINS=https://app.example.com,https://admin.example.com
+# CORS Configuration
+CORS_ALLOWED_ORIGINS=http://localhost:5173,https://app.example.com
 
 # Optional: Lipsync API
 LIPSYNC_API_KEY=your_lipsync_key
 ```
 
-### 3. Initialize Database
+#### 3. Initialize Database
 
 Run the migration scripts to set up database tables:
 
@@ -109,20 +136,42 @@ python migrations/add_columns_migration.py
 
 Or initialize tables automatically on first run (the app will create them if they don't exist).
 
-### 4. Start the Server
+#### 4. Start the Backend Server
 
 ```bash
-# Option 1: Using uvicorn directly
+# Using uvicorn directly
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 
-# Option 2: Using Python module
+# Or using Python module
 python -m app.main
-
-# Option 3: Using uvicorn with auto-reload for development
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-The server will start on `http://localhost:8000`
+The backend will start on `http://localhost:8000`
+
+### Frontend Setup
+
+#### 1. Install Frontend Dependencies
+
+```bash
+cd frontend
+npm install
+```
+
+#### 2. Configure Frontend Environment Variables
+
+Create a `.env` file in the `frontend/` directory:
+
+```env
+VITE_API_BASE_URL=http://localhost:8000
+```
+
+#### 3. Start the Frontend Development Server
+
+```bash
+npm run dev
+```
+
+The frontend will start on `http://localhost:5173`
 
 ## 🧪 Local Testing
 
@@ -167,14 +216,14 @@ Response includes:
 
 ### 3. Generate UGC Images
 
-Upload person and product images to generate 4 UGC variants:
+Upload product image and select an avatar to generate 4 UGC variants:
 
 ```bash
 curl -X POST http://localhost:8000/v1/ugc/upload \
   -H "Authorization: Bearer YOUR_AUTH0_TOKEN" \
   -F "message=Generate UGC images showing the product in use" \
-  -F "person_image=@/path/to/person.jpg" \
   -F "product_image=@/path/to/product.jpg" \
+  -F "avatar_id=1" \
   -F "conversation_id=your-conversation-id-from-brand-sync"
 ```
 
@@ -241,6 +290,7 @@ All endpoints require authentication with a valid Auth0 JWT token in the `Author
 | Method | Endpoint | Description | Auth Required |
 |--------|----------|-------------|---------------|
 | `GET` | `/health` | Health check | No |
+| `GET` | `/v1/avatars/list` | List available avatars | Yes |
 | `POST` | `/v1/brand/sync` | Lock brand context | Yes |
 | `POST` | `/v1/ugc/upload` | Upload images & generate UGC variants | Yes |
 | `POST` | `/v1/ugc/script` | Generate script, audio & video | Yes |
@@ -311,17 +361,52 @@ python -m app.services.s3_utils
 
 # Test database helpers
 python -m app.services.db_helpers
+
+# Test lipsync agent
+python app/test_lipsync_agent.py
+
+# Test lipsync direct
+python app/test_lipsync_direct.py
+```
+
+### Frontend Development
+
+```bash
+cd frontend
+
+# Install dependencies
+npm install
+
+# Run development server
+npm run dev
+
+# Build for production
+npm run build
+
+# Preview production build
+npm run preview
 ```
 
 ### Code Structure
 
+- **Frontend** (`frontend/src/`): React + TypeScript UI with Tailwind CSS
+  - `components/`: React components (ChatInterface, AvatarGrid, AuthInput)
+  - `services/`: API client and utilities
+  - `types/`: TypeScript type definitions
 - **Routes** (`app/api/routes/`): Handle HTTP requests, validate input, call services
 - **Services** (`app/services/`): Business logic, database operations, S3 operations
 - **Agents** (`app/agents/`): CrewAI agent definitions with tools and LLM configs
 - **Tools** (`app/tools/`): CrewAI tools that wrap external APIs
+  - `prompt_variator.py`: GPT-4o vision prompt generation
+  - `banana_ugc.py`: Google Gemini image generation
+  - `script_maker.py`: Script generation tool
+  - `audio_maker.py`: ElevenLabs TTS tool
+  - `video_maker.py`: Veo 3.1 video generation
+  - `lipsync.py`: Sync API lipsync tool
 - **Orchestrator** (`app/orchestrator/`): Multi-agent workflow coordination
 - **Models** (`app/models/`): Pydantic schemas for request/response validation
 - **Core** (`app/core/`): Database models, configuration, dependencies
+- **Config** (`app/config/`): Avatar and voice configurations
 
 ### Adding New Features
 
@@ -355,14 +440,31 @@ aws s3 ls s3://your-bucket-name
 ### Agent Execution Issues
 
 - Check LangSmith traces for detailed error logs
-- Verify `AIML_API_KEY` is set correctly
+- Verify `AIML_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, and `ELEVENLABS_API_KEY` are set correctly
 - Ensure brand context is synced before image generation
 - Check that uploaded images are accessible via S3 URLs
 
+### Frontend Issues
+
+```bash
+# Clear node_modules and reinstall
+cd frontend
+rm -rf node_modules package-lock.json
+npm install
+
+# Check environment variables
+cat .env
+
+# Verify API connection
+curl http://localhost:8000/health
+```
+
 ## 📝 Notes
 
+- **Full-Stack Application**: Backend (FastAPI) + Frontend (React + TypeScript)
 - **Authentication Required**: All endpoints (except `/health`) require Auth0 authentication
 - **Tenant Isolation**: All data is isolated by tenant_id - users can only access their tenant's data
+- **Avatar-Based Generation**: Uses predefined avatars instead of person images for UGC generation
 - **Brand Sync Required**: Brand context must be synced before generating images or scripts
 - **S3-Only Storage**: All assets are stored in S3, no local temp files
 - **Sequential Workflows**: Image generation uses 2-agent sequential workflow (prompt → image)
@@ -370,6 +472,9 @@ aws s3 ls s3://your-bucket-name
 - **LangSmith Tracing**: Full observability enabled by default
 - **API Versioning**: All endpoints use `/v1/` prefix for versioning
 - **CORS**: Configured with specific allowed origins (no wildcards) for security
+- **Google Gemini**: Used for image generation via google-genai SDK
+- **ElevenLabs**: Used for text-to-speech audio generation
+- **Veo 3.1**: Used for video generation via AIML API
 
 ## 🔗 Related Documentation
 

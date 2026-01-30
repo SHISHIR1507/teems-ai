@@ -47,7 +47,7 @@ class PromptVariatorTool(BaseTool):
         vibe: str
     ) -> str:
         """
-        Generate 4 diverse prompt variants using GPT-5.2 with vision.
+        Generate 4 diverse prompt variants using GPT-4o with vision.
         Uses S3 URLs directly - no file I/O needed.
         """
         with langsmith.trace(
@@ -68,7 +68,7 @@ class PromptVariatorTool(BaseTool):
             print(f"✅ Using S3 URLs directly (no file I/O needed)")
 
         with langsmith.trace(
-            name="initialize_gpt52_client",
+            name="initialize_gpt4o_client",
             tags=["llm-initialization"]
         ) as init_trace:
             client = OpenAI(
@@ -101,6 +101,21 @@ Return STRICT JSON only:
     "prompt_variant_4"
   ]
 }
+
+────────────────────────────────────────
+PROMPT STRUCTURE (MANDATORY - CRITICAL)
+────────────────────────────────────────
+Each prompt MUST start with identity-locking language to preserve the person's face.
+
+REQUIRED FORMAT: "This exact person, [scene description]"
+
+Examples:
+- "This exact person, mid-shot in gym, holding product, facing camera directly"
+- "This exact person, waist-up in modern office, presenting product naturally, body slightly angled"
+- "This exact person, close-up in bright space, both hands on product, natural smile"
+
+The phrase "This exact person" MUST be at the START of every prompt.
+This signals to the image generation model that identity preservation is critical.
 
 ────────────────────────────────────────
 VARIATION GUIDELINES
@@ -148,11 +163,22 @@ IF visible text or branding IS clearly present:
 - NEVER use compliance language such as "hide", "obscure", "avoid", or "blur"
 
 ────────────────────────────────────────
-CONSISTENCY RULES
+IDENTITY PRESERVATION (CRITICAL - HIGHEST PRIORITY)
 ────────────────────────────────────────
-- Preserve the person's actual appearance from the image
-- Preserve the product's actual appearance from the image
-- Do NOT change identity, clothing, or product characteristics
+The person's IDENTITY must remain EXACTLY the same across all variants:
+- Face structure, facial features, skin tone, eye color, nose shape, mouth shape
+- Body type, height proportions, physical characteristics
+- Hair color, hair style, hair texture
+- Age appearance, facial expressions baseline
+- ANY other identifying physical features
+
+THESE MUST NEVER CHANGE. The person in the output must be recognizably the SAME person from the input image.
+
+────────────────────────────────────────
+PRODUCT CONSISTENCY
+────────────────────────────────────────
+- Preserve the product's exact appearance from the image
+- Do NOT change product characteristics, colors, or design
 
 ────────────────────────────────────────
 STYLE & LANGUAGE
@@ -170,7 +196,7 @@ You may receive brand context such as:
 - Audience
 - Vibe
 
-This context must  influence the prompts.
+This context must influence the prompts.
 BRAND-DRIVEN VISUAL CONSISTENCY (MANDATORY):
 
 The brand context MUST influence:
@@ -190,7 +216,9 @@ The brand context MUST influence:
      • Fitness brand → athletic wear, activewear, sporty casual
      • Tech brand → casual professional, hoodie, clean basics
      • Beauty brand → comfortable casual, cozy loungewear
-   - Use what's visible in the person image as a BASE, but adjust if it doesn't match brand context
+   - IMPORTANT: You may suggest different clothing styles to match the brand context
+   - However, the person's IDENTITY (face, body type, skin tone, physical features) must remain EXACTLY the same
+   - Only clothing, background, and environment should adapt to brand context
 
 """
 
@@ -229,13 +257,15 @@ Analyze the person and product images and generate 4 prompt variants."""
                                 {
                                     "type": "image_url",
                                     "image_url": {
-                                        "url": person_image_url  # Use S3 URL directly
+                                        "url": person_image_url,
+                                        "detail": "low"
                                     }
                                 },
                                 {
                                     "type": "image_url",
                                     "image_url": {
-                                        "url": product_image_url  # Use S3 URL directly
+                                        "url": product_image_url,
+                                        "detail": "low"
                                     }
                                 }
                             ]
@@ -246,14 +276,36 @@ Analyze the person and product images and generate 4 prompt variants."""
                 )
 
                 content = response.choices[0].message.content
+                if not content:
+                    raise ValueError("Received empty response from LLM")
+                
                 llm_trace.metadata.update({
                     "tokens_used": response.usage.total_tokens,
                     "prompt_tokens": response.usage.prompt_tokens,
                     "completion_tokens": response.usage.completion_tokens
                 })
 
+                # Clean markdown blocks if present
+                content_clean = content.strip()
+                if content_clean.startswith("```"):
+                    content_clean = content_clean.split("\n", 1)[1] if "\n" in content_clean else ""
+                if content_clean.endswith("```"):
+                    content_clean = content_clean[:-3].strip()
+                elif content_clean.startswith("json"):  # Handle edge case
+                    content_clean = content_clean[4:].strip()
+
                 # Parse and validate JSON
-                variants_data = json.loads(content)
+                try:
+                    variants_data = json.loads(content_clean)
+                except json.JSONDecodeError:
+                    # Fallback: try to find JSON object structure
+                    import re
+                    match = re.search(r'\{.*\}', content, re.DOTALL)
+                    if match:
+                        variants_data = json.loads(match.group(0))
+                    else:
+                        raise ValueError(f"Could not parse JSON from response: {content[:100]}...")
+
                 prompts = variants_data.get("prompts", [])
 
                 if len(prompts) != 4:
@@ -272,7 +324,9 @@ Analyze the person and product images and generate 4 prompt variants."""
                 return response_text
 
             except Exception as e:
-                error_msg = f"Error generating prompt variants: {str(e)[:200]}"
+                import traceback
+                traceback.print_exc()
+                error_msg = f"Error generating prompt variants: {str(e)}"
                 llm_trace.outputs = {"error": error_msg}
                 
                 # Fallback: generate simple variants without API
@@ -284,7 +338,52 @@ Analyze the person and product images and generate 4 prompt variants."""
                     f"{base_intent}, mid-shot, one hand gesture, body at 45-degree angle"
                 ]
                 
-                response_text = "✅ TASK COMPLETE - 4 prompts generated successfully (fallback):\n\n"
+                response_text = f"✅ TASK COMPLETE - 4 prompts generated successfully (fallback due to error: {str(e)}):\n\n"
+                
+                # Check if it was a BadRequest (likely image issue) and retry without images
+                if "400" in str(e) or "invalid_image" in str(e):
+                    print("Retrying prompt generation WITHOUT images...")
+                    try:
+                        # Retry with text only
+                        response = client.chat.completions.create(
+                            model=LLM_MODEL,
+                            messages=[
+                                {"role": "system", "content": system_instruction},
+                                {
+                                    "role": "user",
+                                    "content": f"""{brand_context_block}Base intent: {base_intent}
+
+Analyze the intent and brand context to generate 4 prompt variants."""
+                                }
+                            ],
+                            temperature=0.7,
+                            timeout=60
+                        )
+                        
+                        content = response.choices[0].message.content
+                        if content:
+                            if content.startswith("```"):  # clean markdown again
+                                content = content.split("\n", 1)[1] if "\n" in content else ""
+                            if content.endswith("```"):
+                                content = content[:-3].strip()
+                            elif content.startswith("json"):
+                                content = content[4:].strip()
+                            
+                            variants_data = json.loads(content)
+                            prompts = variants_data.get("prompts", [])
+                            if len(prompts) == 4:
+                                response_text = "✅ TASK COMPLETE - 4 prompts generated successfully (text-only mode due to image error):\n\n"
+                                fallback_prompts = prompts
+                    except Exception as retry_e:
+                        print(f"Retry failed: {str(retry_e)}")
+                        # Use improved fallback prompts with brand context if retry fails
+                        if fallback_prompts[0].startswith(f"{base_intent}, mid-shot"):  # if still default
+                            fallback_prompts = [
+                                f"{base_intent}, {industry} style, {vibe} vibe, mid-shot, holding product",
+                                f"{base_intent}, appealing to {audience}, {vibe}, waist-up",
+                                f"{base_intent}, {industry} aesthetic, close-up on product, {vibe}",
+                                f"{base_intent}, UGC style for {audience}, {vibe}, dynamic angle"
+                            ]
                 
                 for i, prompt in enumerate(fallback_prompts, 1):
                     response_text += f"Prompt {i}: {prompt}\n\n"

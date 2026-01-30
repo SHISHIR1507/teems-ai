@@ -80,28 +80,142 @@ Now respond based on the brand signals above.""",
     tags=["chat", "conversation"],
     metadata={"mode": "general-chat"}
 )
-def chat_with_agent(message: str, brand_context: dict = None):
+def chat_with_agent(
+    message: str, 
+    brand_context: dict = None, 
+    conversation_id: str = None, 
+    tenant_id: str = None,
+    enable_brand_sync: bool = False,
+    conversation_state: dict = None,
+    conversation_history: list = None
+):
     """
     Handle general chat without image generation
     Can use brand context if available
+    
+    Args:
+        message: User's message
+        brand_context: Existing brand context (if any)
+        conversation_id: Conversation ID for brand sync
+        tenant_id: Tenant ID for brand sync
+        enable_brand_sync: Whether to enable the Brand Sync tool
+        conversation_state: Current conversation state (assets, progress, etc.)
+        conversation_history: Previous messages in the conversation
     """
-    agent = create_chat_agent()
+    # Enable brand sync tool if requested OR if we have conversation/tenant context
+    should_enable_tool = enable_brand_sync or (conversation_id and tenant_id)
+    
+    agent = create_chat_agent(
+        enable_brand_sync=should_enable_tool,
+        conversation_id=conversation_id,
+        tenant_id=tenant_id
+    )
     
     context_note = ""
+    brand_sync_note = ""
+    state_note = ""
+    history_note = ""
+    
+    # Add conversation history context
+    if conversation_history and len(conversation_history) > 0:
+        # Get last 5 messages for context
+        recent_messages = conversation_history[-5:]
+        history_text = "\n".join([
+            f"{'User' if msg['role'] == 'user' else 'You'}: {msg['content']}"
+            for msg in recent_messages
+            if msg['role'] in ['user', 'assistant']
+        ])
+        history_note = f"""
+
+CONVERSATION HISTORY (last messages):
+{history_text}
+
+Use this history to understand what information the user has already provided. Don't ask for things they've already told you."""
+    
+    # Add conversation state context
+    if conversation_state:
+        has_person = conversation_state.get('has_person', False)
+        has_product = conversation_state.get('has_product', False)
+        avatar_id = conversation_state.get('avatar_id')
+        next_step = conversation_state.get('next_step')
+        
+        state_parts = [
+            f"- Brand synced: {conversation_state.get('brand_locked', False)}",
+            f"- UGC images generated: {conversation_state.get('has_generated_images', False)} ({len(conversation_state.get('generated_images', []))} images)",
+            f"- Next step: {next_step}"
+        ]
+        
+        # Add person image status with avatar awareness
+        if avatar_id:
+            state_parts.insert(1, f"- Person image: Avatar ID {avatar_id} selected ✓")
+        elif has_person:
+            state_parts.insert(1, "- Person image: Custom upload ✓")
+        else:
+            state_parts.insert(1, "- Person image: Not provided (user can select avatar or upload custom)")
+        
+        # Add product image status
+        if has_product:
+            state_parts.insert(2, "- Product image: Uploaded ✓")
+        else:
+            state_parts.insert(2, "- Product image: Not uploaded yet")
+        
+        state_note = "\n\nCONVERSATION STATE:\n" + "\n".join(state_parts)
+        
+        # Special handling for regenerate_or_video state (final state)
+        if next_step == "regenerate_or_video":
+            state_note += f"\n\n✅ FINAL STAGE - User has {len(conversation_state.get('generated_images', []))} generated images!"
+            state_note += "\n\nGUIDANCE: Tell user they can:"
+            state_note += "\n1. Click the 'Regenerate' button and provide new instructions (different avatar, new vibe, etc.) to generate MORE images"
+            state_note += "\n2. Click buttons below images to create VIDEOS (separate endpoint)"
+            state_note += "\n\nDo NOT try to trigger generation yourself. Just guide the user to use the Regenerate button if they want more variations."
+        # Add re-generation guidance if images already exist
+        elif conversation_state.get('has_generated_images', False):
+            state_note += "\n\nRE-GENERATION: User can generate MORE images by providing a different avatar_id or uploading new images. If they say 'generate with avatar X' or 'try avatar X', they want NEW images added to their library."
+        
+        # Add specific guidance based on state
+        if next_step == "upload_product_image" and avatar_id:
+            state_note += "\n\nGUIDANCE: User has selected an avatar. They ONLY need to upload the product image now. Do NOT ask for person image."
+        elif next_step == "upload_images_or_select_avatar":
+            state_note += "\n\nGUIDANCE: User needs to either select an avatar OR upload a custom person image, then upload product image."
+        
+        state_note += "\n\nUse this state to provide contextual guidance. Don't ask for things that are already done."
+    
     if brand_context and brand_context.get('locked'):
         context_note = f"""
         
-Brand context (already locked):
+Brand context (currently synced):
 - Industry: {brand_context.get('industry')}
 - Audience: {brand_context.get('audience')}
 - Vibe: {brand_context.get('vibe')}
 
-Reference this naturally if relevant to the conversation."""
+If the user provides NEW or UPDATED brand information in their message, call the Brand Sync tool to update it.
+Otherwise, reference the existing brand context naturally and guide the user to the next step."""
+    elif enable_brand_sync:
+        brand_sync_note = """
+
+BRAND SYNC REQUIRED:
+The brand is NOT synced yet. This is the first priority.
+
+If the user's message contains ANY brand information (industry, audience, vibe, product_name), extract what you can and ask for missing pieces in a SINGLE message, then wait for their response.
+
+Example:
+User: "young people and vibe gym"
+You: "Got it - young people with a gym vibe. What industry are you in (e.g., fitness, skincare, supplements)? And what's your product name?"
+
+Once you have ALL FOUR pieces (industry, audience, vibe, product_name), immediately call the Brand Sync tool.
+
+Extract from their message:
+- industry: their brand's industry (infer if obvious, e.g., "serum" = beauty/skincare, "protein" = fitness/supplements)
+- audience: their target audience (simplify to key demographic)
+- vibe: their brand vibe/tone (extract the feeling/tone)
+- product_name: their product name
+
+The conversation_id and tenant_id are automatically provided."""
     
     task = Task(
         description=f"""Respond to the user's message: "{message}"
         
-Be helpful and speak like Kai - confident, calm, creator-led.{context_note}""",
+Be helpful and speak like Kai - confident, calm, creator-led.{history_note}{state_note}{context_note}{brand_sync_note}""",
         expected_output="A helpful response in Kai's voice",
         agent=agent,
         human_input=False
@@ -111,7 +225,7 @@ Be helpful and speak like Kai - confident, calm, creator-led.{context_note}""",
         agents=[agent],
         tasks=[task],
         verbose=True,
-        max_iter=3,
+        max_iter=5,  # Increased to allow tool usage
         full_output=False
     )
     
@@ -251,11 +365,9 @@ Call the "Banana UGC Image Generator" tool ONCE with these parameters:
 - conversation_id: "{conversation_id}"
 - upload_to_s3: {upload_to_s3}
 
-The tool will generate all 4 images in parallel using S3 URLs directly (no file I/O).
-
-IMPORTANT: After the tool completes, return the EXACT tool output without modification.
-The tool output contains [S3_URLS] markers that must be preserved.""",
-            expected_output="The exact tool output including [S3_URLS] markers and all 4 S3 URLs",
+The tool generates all 4 images in parallel. When the tool returns output (starts with ✅ or ⚠️), your task is COMPLETE.
+Return the tool output exactly as received - do not call the tool again or modify the output.""",
+            expected_output="The exact tool output starting with ✅ SUCCESS or ⚠️ PARTIAL SUCCESS, including [S3_URLS] markers and all S3 URLs",
             agent=image_agent,
             human_input=False,
             context=[task1]  # Task 2 depends on Task 1 output

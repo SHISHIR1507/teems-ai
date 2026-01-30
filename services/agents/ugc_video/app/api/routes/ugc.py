@@ -4,6 +4,8 @@ UGC generation endpoints
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
 import sys
 from pathlib import Path
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 # Add shared_libs to path for error standardization
 current_file = Path(__file__).resolve()
@@ -46,7 +48,9 @@ from app.services.realtime_notifier import (
 from app.orchestrator.ugc_orchestrator import generate_ugc_with_orchestrator, chat_with_agent
 from app.agents.script_agent import create_script_agent
 from app.agents.audio_video_agent import create_audio_video_agent
+from app.agents.lipsync_agent import create_lipsync_agent
 from app.tools.audio_maker import AVATAR_VOICE_MAP
+from app.config.avatars import get_avatar_s3_url, avatar_exists
 
 router = APIRouter()
 # Initialize LangSmith client with error handling
@@ -63,12 +67,23 @@ async def chat_ugc_upload_endpoint(
     message: str = Form(...),
     person_image: Optional[UploadFile] = File(None),
     product_image: Optional[UploadFile] = File(None),
+    avatar_id: Optional[int] = Form(None),
     conversation_id: Optional[str] = Form(None),
+    regenerate: Optional[bool] = Form(False),
+    product_name: Optional[str] = Form(None),
     user: AuthenticatedUser = Depends(require_tenant()),
     session: AsyncSession = Depends(get_db_session)
 ):
     """
     Upload images and generate UGC with DB & S3 storage (NO local temp files)
+    
+    Supports two modes:
+    1. Avatar mode: Provide avatar_id (1-9) to use predefined avatar image
+    2. Custom mode: Upload person_image for custom person image
+    
+    Note: Cannot provide both avatar_id and person_image simultaneously.
+    
+    Regenerate mode: Set regenerate=true to trigger re-generation with existing images from state
     
     Requires authentication with tenant_id.
     """
@@ -76,6 +91,14 @@ async def chat_ugc_upload_endpoint(
         tenant_id = user.tenant_id
         user_id = user.sub
         conversation_id = resolve_conversation_id(conversation_id)
+        
+        # Validation: Cannot provide both avatar_id and person_image
+        if avatar_id is not None and person_image is not None:
+            raise_standard_error(
+                status_code=400,
+                message="Invalid request",
+                detail="Cannot provide both avatar_id and person_image. Please provide only one."
+            )
         
         # Get or create conversation with tenant isolation
         conversation = await db_helpers.get_or_create_conversation(
@@ -85,12 +108,36 @@ async def chat_ugc_upload_endpoint(
         # Add user message to database
         await db_helpers.add_message(session, conversation_id, tenant_id, "user", message)
         
+        # Update product name if provided
+        if product_name:
+            await db_helpers.update_product_name(session, conversation_id, tenant_id, product_name)
+            print(f"✅ Product name updated: {product_name}")
+        
         person_image_s3_url = None
         product_image_s3_url = None
         
-        # Upload person image to S3 if provided (public-read for AI/ML API access)
-        if person_image:
-            # Notify progress if we're uploading images
+        # Handle avatar_id or person_image
+        if avatar_id is not None:
+            # Validate avatar_id
+            if not avatar_exists(avatar_id):
+                raise_standard_error(
+                    status_code=400,
+                    message="Invalid avatar ID",
+                    detail=f"Avatar ID {avatar_id} does not exist. Valid IDs are 1-9."
+                )
+            
+            # Get predefined avatar S3 URL
+            person_image_s3_url = get_avatar_s3_url(avatar_id)
+            print(f"✅ Using predefined avatar {avatar_id}: {person_image_s3_url}")
+            
+            # Save avatar usage to database
+            await db_helpers.add_asset(
+                session, conversation_id, tenant_id, user_id, "avatar_used", person_image_s3_url,
+                f"avatar_{avatar_id}.jpg", {"avatar_id": avatar_id}
+            )
+            
+        elif person_image:
+            # Upload custom person image to S3 if provided (public-read for AI/ML API access)
             await notify_job_progress(
                 tenant_id,
                 conversation_id,
@@ -116,6 +163,15 @@ async def chat_ugc_upload_endpoint(
         
         # Upload product image to S3 if provided (public-read for AI/ML API access)
         if product_image:
+            if avatar_id is None and person_image is None:
+                # Notify progress if we're uploading images
+                await notify_job_progress(
+                    tenant_id,
+                    conversation_id,
+                    "ugc_image_generation",
+                    {"step": "uploading_images", "progress": 5},
+                    "Uploading images to S3..."
+                )
             content = await product_image.read()
             s3_key = get_s3_key_for_upload(conversation_id, product_image.filename, "product")
             product_image_s3_url = upload_bytes_to_s3(
@@ -144,13 +200,86 @@ async def chat_ugc_upload_endpoint(
                 "locked": True
             }
         
+        # Get conversation state for agent context (initial state)
+        conversation_state_data = await db_helpers.get_conversation_state(
+            session, conversation_id, tenant_id
+        )
+        
+        # Get conversation history for agent context
+        messages = await db_helpers.get_messages(session, conversation_id, tenant_id)
+        conversation_history = [
+            {"role": msg.role, "content": msg.content}
+            for msg in messages
+        ]
+        
+        # Determine if we should generate images
+        # Priority 1: New uploads in this request
+        has_new_uploads = person_image_s3_url and product_image_s3_url
+        
+        # Priority 2: Regenerate flag is set (user clicked regenerate button)
+        # Only allow if we have existing images in state
+        can_regenerate = (
+            regenerate and
+            not has_new_uploads and
+            conversation_state_data and
+            conversation_state_data.get('has_person') and
+            conversation_state_data.get('has_product') and
+            brand_context and brand_context.get('locked')
+        )
+        
+        # Priority 3: First-time generation (auto-trigger when ready)
+        # User has uploaded images, brand is synced, but hasn't generated yet
+        is_first_generation = (
+            not has_new_uploads and
+            not regenerate and
+            conversation_state_data and
+            conversation_state_data.get('has_person') and
+            conversation_state_data.get('has_product') and
+            conversation_state_data.get('brand_locked') and
+            not conversation_state_data.get('has_generated_images') and
+            conversation_state_data.get('next_step') == 'generate_ugc_images'
+        )
+        
+        # Determine if we should trigger generation
+        should_generate = has_new_uploads or can_regenerate or is_first_generation
+        
+        # If regenerating or first generation, retrieve images from state
+        if (can_regenerate or is_first_generation) and not has_new_uploads:
+            person_image_s3_url = conversation_state_data.get('person_url')
+            product_image_s3_url = conversation_state_data.get('product_url')
+            
+            # If user provided a new avatar_id, use that instead of the stored person_url
+            if avatar_id is not None and avatar_id != conversation_state_data.get('avatar_id'):
+                if avatar_exists(avatar_id):
+                    person_image_s3_url = get_avatar_s3_url(avatar_id)
+                    print(f"✅ Using NEW avatar {avatar_id} for re-generation: {person_image_s3_url}")
+                else:
+                    print(f"⚠️ Invalid avatar ID {avatar_id}, using existing person image")
+            
+            if is_first_generation:
+                print(f"✅ First-time generation triggered: person={person_image_s3_url}, product={product_image_s3_url}")
+            else:
+                print(f"✅ Regenerating with existing images from state: person={person_image_s3_url}, product={product_image_s3_url}")
+        
+        # Build context message for agent about avatar usage
+        avatar_context = ""
+        if avatar_id is not None:
+            avatar_context = f"\n\nIMPORTANT: User has selected Avatar ID {avatar_id} as their person image. Do NOT ask them to upload a person image."
+        elif conversation_state_data and conversation_state_data.get("avatar_id"):
+            avatar_context = f"\n\nIMPORTANT: User has already selected Avatar ID {conversation_state_data.get('avatar_id')} as their person image. Do NOT ask them to upload a person image."
+        
         # Check if user wants to generate images
-        if person_image_s3_url and product_image_s3_url:
+        if should_generate and person_image_s3_url and product_image_s3_url:
             # Check if brand is locked
             if not brand_context or not brand_context.get('locked'):
                 result = chat_with_agent(
-                    "User wants to generate images but hasn't synced brand context yet. Guide them to complete brand sync first.",
-                    brand_context=brand_context
+                    message=f"User wants to generate images but brand is not synced. Ask them directly for: 1) Industry, 2) Target audience, 3) Brand vibe, 4) Product name. Once you have all four, sync it immediately using the Brand Sync tool.{avatar_context}",
+                    brand_context=brand_context,
+                    conversation_id=conversation_id,
+                    tenant_id=tenant_id,
+                    enable_brand_sync=True,
+                    conversation_state=conversation_state_data,
+                    conversation_history=conversation_history
                 )
                 assistant_message = str(result)
                 steps = [{"type": "guidance", "description": "Brand sync required", "timestamp": datetime.now().isoformat()}]
@@ -230,8 +359,16 @@ async def chat_ugc_upload_endpoint(
             assistant_message = result.get("message", str(result))
             generated_s3_urls = result.get("generated_images", [])
         else:
-            # No images - use chat agent
-            result = chat_with_agent(message, brand_context=brand_context)
+            # No images - use chat agent with brand sync enabled
+            result = chat_with_agent(
+                message + avatar_context,
+                brand_context=brand_context,
+                conversation_id=conversation_id,
+                tenant_id=tenant_id,
+                enable_brand_sync=True,
+                conversation_state=conversation_state_data,
+                conversation_history=conversation_history
+            )
             assistant_message = str(result)
             generated_s3_urls = []
         
@@ -264,6 +401,23 @@ async def chat_ugc_upload_endpoint(
         # Add assistant message to database
         await db_helpers.add_message(session, conversation_id, tenant_id, "assistant", assistant_message)
         
+        # Commit all changes to database
+        await session.commit()
+        
+        # Get FRESH conversation state after all operations (reflects brand sync, uploads, generations)
+        from app.models.schemas import ConversationState
+        fresh_state_data = await db_helpers.get_conversation_state(
+            session, conversation_id, tenant_id
+        )
+        conversation_state = ConversationState(**fresh_state_data) if fresh_state_data else None
+        
+        # Determine if we should show regenerate button
+        show_regenerate_button = (
+            conversation_state and 
+            conversation_state.has_generated_images and
+            conversation_state.next_step == "regenerate_or_video"
+        )
+        
         # Get trace URL
         trace_url = None
         if run_tree and run_tree.id and langsmith_client:
@@ -292,6 +446,8 @@ async def chat_ugc_upload_endpoint(
             assistant_message=assistant_message,
             steps=steps,
             generated_images=generated_s3_urls if generated_s3_urls else None,
+            conversation_state=conversation_state,
+            show_regenerate_button=show_regenerate_button,
             timestamp=datetime.now().isoformat(),
             trace_url=trace_url
         )
@@ -322,7 +478,7 @@ async def generate_script_and_video(
     session: AsyncSession = Depends(get_db_session)
 ):
     """
-    Generate UGC script, audio, and video (2-agent sequential workflow)
+    Generate UGC script, audio, and video (3-agent sequential workflow)
     Works with S3 URLs or local paths
     
     Requires authentication with tenant_id.
@@ -345,6 +501,48 @@ async def generate_script_and_video(
                 message="Access denied",
                 detail="Access denied to this conversation"
             )
+        
+        # Get conversation state to retrieve avatar_id if not provided
+        conversation_state = await db_helpers.get_conversation_state(
+            session, conversation_id, tenant_id
+        )
+        
+        # Retrieve product_name from conversation if not provided in request
+        product_name = request.product_name
+        if not product_name:
+            product_name = conversation.product_name if hasattr(conversation, 'product_name') else None
+        
+        # Retrieve avatar_id from conversation state if not provided in request
+        avatar_id = request.avatar_id
+        if not avatar_id and conversation_state:
+            avatar_id = conversation_state.get('avatar_id')
+        
+        # Validate that we have all required data
+        if not product_name:
+            raise_standard_error(
+                status_code=400,
+                message="Product name required",
+                detail="Product name must be provided in request or synced via brand sync"
+            )
+        
+        if not avatar_id:
+            raise_standard_error(
+                status_code=400,
+                message="Avatar ID required",
+                detail="Avatar ID must be provided in request or selected in conversation"
+            )
+        
+        # Use defaults for tone and platform
+        tone = request.tone or "energetic and authentic"
+        platform = request.platform or "Instagram"
+        
+        print(f"\n{'='*60}")
+        print(f"Script Generation Request")
+        print(f"Product: {product_name}")
+        print(f"Avatar ID: {avatar_id}")
+        print(f"Tone: {tone}")
+        print(f"Platform: {platform}")
+        print(f"{'='*60}\n")
         
         # Add user message
         await db_helpers.add_message(
@@ -375,7 +573,17 @@ async def generate_script_and_video(
         industry = brand_context.get('industry')
         audience = brand_context.get('audience')
         vibe = brand_context.get('vibe')
-        voice_name = AVATAR_VOICE_MAP.get(request.avatar_id, "Harry")
+        
+        # Get voice name from avatar mapping
+        from app.config.avatars import get_avatar_voice_name
+        voice_name = get_avatar_voice_name(avatar_id)
+        
+        # Fallback to legacy voice map if not found
+        if not voice_name:
+            voice_name = AVATAR_VOICE_MAP.get(avatar_id, "Harry")
+            print(f"⚠️ Using legacy voice mapping: {voice_name}")
+        else:
+            print(f"✅ Using custom avatar voice: {voice_name} (Avatar ID: {avatar_id})")
         
         # Notify job started
         await notify_job_started(
@@ -384,21 +592,21 @@ async def generate_script_and_video(
             "script_audio_video",
             {
                 "ugc_image_path": request.ugc_image_path,
-                "product_name": request.product_name,
-                "avatar_id": request.avatar_id,
-                "platform": request.platform
+                "product_name": product_name,
+                "avatar_id": avatar_id,
+                "platform": platform
             }
         )
         
         print(f"\n{'='*60}")
-        print(f"Starting 2-Agent Workflow: Script → Audio+Video")
+        print(f"Starting 3-Agent Workflow: Script → Audio+Video → Lipsync")
         print(f"Image: {request.ugc_image_path}")
         print(f"{'='*60}\n")
         
         # ============================================================
         # STEP 1: Generate Script (Dialogue + Video Script)
         # ============================================================
-        print("STEP 1/2: Generating Script...")
+        print("STEP 1/3: Generating Script...")
         
         # Notify progress: generating script
         await notify_job_progress(
@@ -421,9 +629,9 @@ Brand context (LOCKED):
 
 Call the "UGC Script Maker" tool with these parameters:
 - ugc_image_reference: {request.ugc_image_path}
-- product_name: {request.product_name}
-- tone: {request.tone}
-- platform: {request.platform}
+- product_name: {product_name}
+- tone: {tone}
+- platform: {platform}
 - industry: {industry}
 - audience: {audience}
 - vibe: {vibe}
@@ -436,7 +644,8 @@ Return the complete output with both dialogue and video script.""",
         )
         
         crew1 = Crew(agents=[script_agent], tasks=[task1], verbose=True, process="sequential")
-        script_result = crew1.kickoff()
+        loop = asyncio.get_event_loop()
+        script_result = await loop.run_in_executor(ThreadPoolExecutor(), crew1.kickoff)
         script_result_str = str(script_result)
         
         # Parse dialogue and video script
@@ -467,7 +676,7 @@ Return the complete output with both dialogue and video script.""",
         # ============================================================
         # STEP 2: Generate Audio + Video (Single Agent)
         # ============================================================
-        print("\nSTEP 2/2: Generating Audio + Video...")
+        print("\nSTEP 2/3: Generating Audio + Video...")
         audio_video_agent = create_audio_video_agent()
         audio_filename = f"ugc_audio_{conversation_id}.mp3"
         
@@ -484,7 +693,7 @@ IMAGE REFERENCE: {request.ugc_image_path}
 
 STEP 1: Call "UGC Audio Generator" tool with:
 - dialogue_text: {dialogue}
-- avatar_id: {request.avatar_id}
+- avatar_id: {avatar_id}
 - output_filename: {audio_filename}
 - conversation_id: {conversation_id}
 
@@ -511,8 +720,16 @@ Return both the audio S3 URL and video URL.""",
         )
         
         crew2 = Crew(agents=[audio_video_agent], tasks=[task2], verbose=True, process="sequential")
-        audio_video_result = crew2.kickoff()
+        loop = asyncio.get_event_loop()
+        audio_video_result = await loop.run_in_executor(ThreadPoolExecutor(), crew2.kickoff)
         audio_video_result_str = str(audio_video_result)
+        
+        print(f"\n{'='*60}")
+        print(f"DEBUG: Audio/Video Agent Result")
+        print(f"{'='*60}")
+        print(f"Result length: {len(audio_video_result_str)} chars")
+        print(f"Result preview: {audio_video_result_str[:500]}...")
+        print(f"{'='*60}\n")
         
         # Extract S3 URL from audio result
         audio_s3_url = None
@@ -525,24 +742,128 @@ Return both the audio S3 URL and video URL.""",
                 # Store in database
                 await db_helpers.add_asset(
                     session, conversation_id, tenant_id, user_id, "audio", audio_s3_url,
-                    audio_filename, {"voice": voice_name, "avatar_id": request.avatar_id}
+                    audio_filename, {"voice": voice_name, "avatar_id": avatar_id}
                 )
         
-        # Extract video URL
+        if not audio_s3_url:
+            print("⚠️  WARNING: Could not extract audio S3 URL from result")
+        
+        # Extract video URL - try multiple patterns
         video_url = None
-        if "Success! Output URL:" in audio_video_result_str or "https://cdn.aimlapi.com" in audio_video_result_str:
+        
+        # Pattern 1: cdn.aimlapi.com URLs
+        if "cdn.aimlapi.com" in audio_video_result_str:
             urls = re.findall(r'https://cdn\.aimlapi\.com[^\s<>"{}|\\^`\[\]]+', audio_video_result_str)
-            if not urls:
-                urls = re.findall(r'https://[^\s<>"{}|\\^`\[\]]+\.mp4[^\s<>"{}|\\^`\[\]]*', audio_video_result_str)
             if urls:
                 video_url = urls[0]
-                print(f"✅ Video Generated: {video_url}")
+        
+        # Pattern 2: Any .mp4 URL
+        if not video_url:
+            urls = re.findall(r'https://[^\s<>"{}|\\^`\[\]]+\.mp4[^\s<>"{}|\\^`\[\]]*', audio_video_result_str)
+            if urls:
+                video_url = urls[0]
+        
+        if video_url:
+            print(f"✅ Video Generated: {video_url}")
+            
+            # Store in database
+            await db_helpers.add_asset(
+                session, conversation_id, tenant_id, user_id, "video", video_url,
+                f"video_{conversation_id}.mp4", {"duration": 8, "platform": platform}
+            )
+        else:
+            print("⚠️  WARNING: Could not extract video URL from result")
+        
+        print(f"\n{'='*60}")
+        print(f"Step 2 Complete - Checking for Step 3")
+        print(f"Audio URL: {audio_s3_url is not None}")
+        print(f"Video URL: {video_url is not None}")
+        print(f"Will proceed to lipsync: {audio_s3_url is not None and video_url is not None}")
+        print(f"{'='*60}\n")
+        
+        # ============================================================
+        # STEP 3: Lipsync Audio + Video
+        # ============================================================
+        final_video_url = None
+        
+        if audio_s3_url and video_url:
+            print("\nSTEP 3/3: Lipsyncing Audio + Video...")
+            
+            # Notify progress: lipsyncing
+            await notify_job_progress(
+                tenant_id,
+                conversation_id,
+                "script_audio_video",
+                {"step": "lipsyncing", "progress": 85},
+                "Syncing audio with video (this may take 30-60 seconds)..."
+            )
+            
+            try:
+                lipsync_agent = create_lipsync_agent()
                 
-                # Store in database
-                await db_helpers.add_asset(
-                    session, conversation_id, tenant_id, user_id, "video", video_url,
-                    f"video_{conversation_id}.mp4", {"duration": 8, "platform": request.platform}
+                task3 = Task(
+                    description=f"""Lipsync the audio with the video.
+
+Call the "Lipsync Video Generator" tool with:
+- video_url: {video_url}
+- audio_url: {audio_s3_url}
+- output_filename: final_ugc_{conversation_id}
+
+Return the final lipsynced video URL.""",
+                    expected_output="Final lipsynced video URL",
+                    agent=lipsync_agent,
+                    human_input=False
                 )
+                
+                crew3 = Crew(agents=[lipsync_agent], tasks=[task3], verbose=True, process="sequential")
+                loop = asyncio.get_event_loop()
+                lipsync_result = await loop.run_in_executor(ThreadPoolExecutor(), crew3.kickoff)
+                lipsync_result_str = str(lipsync_result)
+                
+                print(f"\n{'='*60}")
+                print(f"DEBUG: Lipsync Agent Result")
+                print(f"{'='*60}")
+                print(f"Result: {lipsync_result_str}")
+                print(f"{'='*60}\n")
+                
+                # Extract final video URL from lipsync result
+                # Handle multiple URL patterns: storage.sync.so, api.sync.so/generations, or any .mp4
+                if "Success! Output URL:" in lipsync_result_str or "https://" in lipsync_result_str:
+                    # Try storage.sync.so URLs first (permanent storage)
+                    urls = re.findall(r'https://storage\.sync\.so[^\s<>"{}|\\^`\[\]]+', lipsync_result_str)
+                    
+                    # Try api.sync.so generation URLs (temporary with token)
+                    if not urls:
+                        urls = re.findall(r'https://api\.sync\.so/v2/generations/[^\s<>"{}|\\^`\[\]]+', lipsync_result_str)
+                    
+                    # Try any .mp4 URLs as fallback
+                    if not urls:
+                        urls = re.findall(r'https://[^\s<>"{}|\\^`\[\]]+\.mp4[^\s<>"{}|\\^`\[\]]*', lipsync_result_str)
+                    
+                    if urls:
+                        final_video_url = urls[0]
+                        print(f"✅ Lipsync Complete: {final_video_url}")
+                        
+                        # Store final video in database
+                        await db_helpers.add_asset(
+                            session, conversation_id, tenant_id, user_id, "final_video", final_video_url,
+                            f"final_ugc_{conversation_id}.mp4", 
+                            {"duration": 8, "platform": platform, "lipsynced": True}
+                        )
+                    else:
+                        print("⚠️  Lipsync completed but could not extract video URL from result")
+                        print(f"Full result: {lipsync_result_str}")
+                else:
+                    print("⚠️  Lipsync did not complete successfully")
+                    print(f"Result: {lipsync_result_str}")
+            
+            except Exception as e:
+                print(f"❌ Error in lipsync step: {str(e)}")
+                print("Continuing with non-lipsynced video...")
+        else:
+            print("\n⚠️  Skipping Step 3 (Lipsync) - Missing audio or video")
+            print(f"   Audio URL present: {audio_s3_url is not None}")
+            print(f"   Video URL present: {video_url is not None}")
         
         # Get trace URL
         trace_url = None
@@ -555,7 +876,7 @@ Return both the audio S3 URL and video URL.""",
                 pass
         
         print(f"\n{'='*60}")
-        print(f"✅ Complete! Audio: {audio_s3_url is not None}, Video: {video_url is not None}")
+        print(f"✅ Complete! Audio: {audio_s3_url is not None}, Video: {video_url is not None}, Final: {final_video_url is not None}")
         print(f"{'='*60}\n")
         
         # Determine completion status
@@ -563,11 +884,14 @@ Return both the audio S3 URL and video URL.""",
         progress_percentage = 100
         if not audio_s3_url and not video_url:
             current_step = "script"
-            progress_percentage = 33
+            progress_percentage = 25
         elif audio_s3_url and not video_url:
             current_step = "audio"
-            progress_percentage = 66
-        elif audio_s3_url and video_url:
+            progress_percentage = 50
+        elif audio_s3_url and video_url and not final_video_url:
+            current_step = "video"
+            progress_percentage = 75
+        elif final_video_url:
             current_step = "completed"
             progress_percentage = 100
         
@@ -581,6 +905,7 @@ Return both the audio S3 URL and video URL.""",
                 "dialogue": dialogue,
                 "audio_url": audio_s3_url,
                 "video_url": video_url,
+                "final_video_url": final_video_url,
                 "voice_used": voice_name,
                 "trace_url": trace_url
             }
@@ -591,9 +916,9 @@ Return both the audio S3 URL and video URL.""",
             script=video_script,
             dialogue=dialogue,
             audio_url=audio_s3_url,
-            video_url=video_url,
+            video_url=final_video_url if final_video_url else video_url,  # Return final lipsynced video if available
             ugc_image_path=request.ugc_image_path,
-            avatar_id=request.avatar_id,
+            avatar_id=avatar_id,
             voice_used=voice_name,
             timestamp=datetime.now().isoformat(),
             trace_url=trace_url,

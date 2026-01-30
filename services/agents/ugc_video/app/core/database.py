@@ -47,6 +47,7 @@ class Conversation(Base):
     brand_audience = Column(String, nullable=True)
     brand_vibe = Column(String, nullable=True)
     brand_locked = Column(Boolean, default=False)
+    product_name = Column(String, nullable=True)  # Product name for video generation
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     

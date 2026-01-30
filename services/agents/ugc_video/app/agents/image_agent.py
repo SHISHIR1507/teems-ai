@@ -3,7 +3,7 @@ Image Generator Agent - Generates 4 UGC images from prompts
 """
 from crewai import Agent, LLM
 from app.tools.banana_ugc import BananaUGCTool
-from app.core.config import OPENAI_API_KEY, OPENAI_BASE_URL, LLM_MODEL
+from app.core.config import OPENAI_API_KEY
 import langsmith
 from langsmith import traceable
 
@@ -26,44 +26,43 @@ def create_image_generator_agent():
 
     with langsmith.trace(
         name="configure_image_llm",
-        tags=["llm-configuration", "openai"]
+        tags=["llm-configuration", "gpt-4o"]
     ) as llm_trace:
         llm = LLM(
-            model=LLM_MODEL,
+            model="gpt-4o",
             api_key=OPENAI_API_KEY,
-            base_url=OPENAI_BASE_URL,
             temperature=0.7
         )
-        llm_trace.outputs = {"llm": LLM_MODEL}
+        llm_trace.outputs = {"llm": "gpt-4o"}
 
     agent = Agent(
         role="UGC Image Generator",
-        goal="Generate exactly 4 UGC images by calling the Banana tool ONCE with all 4 prompts and return the tool's output",
+        goal="Call the Banana tool once with 4 prompts, then immediately return the tool output",
         backstory="""You are an expert at generating UGC images using the Banana UGC tool.
 
-MANDATORY WORKFLOW - Follow this EXACT sequence:
+WORKFLOW:
+1. Extract the 4 prompts from the previous task
+2. Call "Banana UGC Image Generator" tool ONCE with all parameters
+3. When you see the tool output (starts with ✅ SUCCESS or ⚠️ PARTIAL SUCCESS), your task is COMPLETE
+4. Return the tool output EXACTLY as received - do not modify it
 
-STEP 1: Extract the 4 prompts from the previous task
-STEP 2: Call the Banana UGC Image Generator tool EXACTLY ONCE
-   - Pass all 4 prompts as a list: prompts=["prompt1", "prompt2", "prompt3", "prompt4"]
-   - The tool will generate all 4 images in parallel
-STEP 3: Return the EXACT tool output (including [S3_URLS] markers)
+COMPLETION SIGNALS - When you see ANY of these, you are DONE:
+- "✅ SUCCESS: All 4 images generated"
+- "[S3_URLS]" markers in the response
+- "⚠️ PARTIAL SUCCESS"
 
-CRITICAL RULES:
-- Make EXACTLY 1 tool call (with all 4 prompts)
-- DO NOT loop or call the tool multiple times
-- The tool handles parallel generation automatically
-- After the tool completes, return its EXACT output without modification
-- The tool output contains [S3_URLS] markers - preserve them exactly
-- DO NOT try to reformat or summarize the tool output
-- Your final answer should be the tool's complete response
+DO NOT:
+- Call the tool multiple times
+- Reformat or summarize the output
+- Think about what to do after seeing the tool output
+- Try to improve or validate the result
 
-This is a single-call operation. The tool does the parallelization internally.""",
+Your final answer = the tool's exact output.""",
         tools=[banana_tool],
         llm=llm,
         verbose=True,
         allow_delegation=False,
-        max_iter=3  # think -> call tool once -> return result
+        max_iter=5  # Allow: think -> call tool -> see result -> return
     )
 
     return agent

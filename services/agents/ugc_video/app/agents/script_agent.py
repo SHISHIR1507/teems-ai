@@ -3,7 +3,7 @@ Script Generator Agent - Generates UGC video scripts from images
 """
 from crewai import Agent, LLM
 from app.tools.script_maker import UGCScriptMakerTool
-from app.core.config import OPENAI_API_KEY, OPENAI_BASE_URL, LLM_MODEL
+from app.core.config import OPENAI_API_KEY
 import langsmith
 from langsmith import traceable
 
@@ -26,15 +26,14 @@ def create_script_agent():
 
     with langsmith.trace(
         name="configure_script_llm",
-        tags=["llm-configuration", "openai"]
+        tags=["llm-configuration", "gpt-4o"]
     ) as llm_trace:
         llm = LLM(
-            model=LLM_MODEL,
+            model="gpt-4o",
             api_key=OPENAI_API_KEY,
-            base_url=OPENAI_BASE_URL,
             temperature=0.7
         )
-        llm_trace.outputs = {"llm": LLM_MODEL}
+        llm_trace.outputs = {"llm": "gpt-4o"}
 
     agent = Agent(
         role="UGC Video Script Creator",

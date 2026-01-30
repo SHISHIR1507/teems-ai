@@ -93,6 +93,21 @@ async def update_conversation_brand(
     return conversation
 
 
+async def update_product_name(
+    session: AsyncSession,
+    conversation_id: str,
+    tenant_id: str,
+    product_name: str
+) -> Optional[Conversation]:
+    """Update conversation product name with tenant verification"""
+    conversation = await get_conversation(session, conversation_id, tenant_id)
+    if conversation:
+        conversation.product_name = product_name
+        conversation.updated_at = datetime.utcnow()
+        await session.flush()
+    return conversation
+
+
 async def add_message(
     session: AsyncSession,
     conversation_id: str,
@@ -252,6 +267,89 @@ async def get_tenant_conversations(
         .offset(offset)
     )
     return result.scalars().all()
+
+
+async def get_conversation_state(
+    session: AsyncSession,
+    conversation_id: str,
+    tenant_id: str
+) -> Optional[Dict]:
+    """
+    Get the current conversation state including all assets
+    
+    Returns a dict with:
+    - brand_locked, brand_industry, brand_audience, brand_vibe
+    - person_url, avatar_id, product_url
+    - generated_images (list of URLs)
+    - has_person, has_product, has_generated_images (booleans)
+    - next_step (suggested next action)
+    """
+    conversation = await get_conversation(session, conversation_id, tenant_id)
+    if not conversation:
+        return None
+    
+    # Get all assets
+    assets = await get_assets(session, conversation_id, tenant_id)
+    
+    # Build state
+    state = {
+        "brand_locked": conversation.brand_locked if hasattr(conversation, 'brand_locked') else False,
+        "brand_industry": conversation.brand_industry,
+        "brand_audience": conversation.brand_audience,
+        "brand_vibe": conversation.brand_vibe,
+        "product_name": conversation.product_name if hasattr(conversation, 'product_name') else None,
+        "person_url": None,
+        "avatar_id": None,
+        "product_url": None,
+        "generated_images": [],
+        "has_person": False,
+        "has_product": False,
+        "has_product_name": False,
+        "has_generated_images": False,
+        "next_step": None
+    }
+    
+    # Extract asset URLs
+    for asset in assets:
+        if asset.asset_type == "uploaded_person":
+            state["person_url"] = asset.url
+            state["has_person"] = True
+        elif asset.asset_type == "uploaded_product":
+            state["product_url"] = asset.url
+            state["has_product"] = True
+        elif asset.asset_type == "generated_image":
+            state["generated_images"].append(asset.url)
+        elif asset.asset_type == "avatar_used":
+            # Track when avatar was used instead of custom upload
+            state["avatar_id"] = asset.asset_metadata.get("avatar_id") if asset.asset_metadata else None
+            state["person_url"] = asset.url
+            state["has_person"] = True
+    
+    # Check if we have generated images
+    if state["generated_images"]:
+        state["has_generated_images"] = True
+    
+    # Check if we have product name
+    if state["product_name"]:
+        state["has_product_name"] = True
+    
+    # Check if we have product name
+    if state["product_name"]:
+        state["has_product_name"] = True
+    
+    # Determine next step
+    if not state["brand_locked"]:
+        state["next_step"] = "sync_brand"
+    elif not state["has_person"] and state["avatar_id"] is None:
+        state["next_step"] = "upload_images_or_select_avatar"
+    elif not state["has_product"]:
+        state["next_step"] = "upload_product_image"
+    elif state["has_generated_images"]:
+        state["next_step"] = "regenerate_or_video"  # Final state - can regenerate or create videos
+    else:
+        state["next_step"] = "generate_ugc_images"
+    
+    return state
 
 
 async def get_conversation_with_data(

@@ -1,0 +1,76 @@
+{
+  "avatars": {
+    "1": {
+      "name": "teems_female_avatar_1",
+      "s3_url": "https://teems-agents.s3.eu-north-1.amazonaws.com/ugc_agent/Avatar/avatar_1.jpg",
+      "voice_name": "teems_female_avatar_1",
+      "custom_voice_id": "HA766LiFSvm0y9Sde9Nh",
+      "original_filename": "teems_female_avatar_1.jpg",
+      "description": "Female Avatar 1 - Custom voice"
+    },
+    "2": {
+      "name": "teems_female_avatar_2",
+      "s3_url": "https://teems-agents.s3.eu-north-1.amazonaws.com/ugc_agent/Avatar/avatar_2.png",
+      "voice_name": "teems_female_avatar_2",
+      "custom_voice_id": "P4303UXr6JTYdUKghdmA",
+      "original_filename": "teems_female_avatar_2.png",
+      "description": "Female Avatar 2 - Custom voice"
+    },
+    "3": {
+      "name": "teems_female_avatar_3",
+      "s3_url": "https://teems-agents.s3.eu-north-1.amazonaws.com/ugc_agent/Avatar/avatar_3.jpg",
+      "voice_name": "teems_female_avatar_3",
+      "custom_voice_id": "oGYX12eTscpSTSjWanXa",
+      "original_filename": "teems_female_avatar_3.jpg",
+      "description": "Female Avatar 3 - Custom voice"
+    },
+    "4": {
+      "name": "teems_female_avatar_4",
+      "s3_url": "https://teems-agents.s3.eu-north-1.amazonaws.com/ugc_agent/Avatar/avatar_4.jpg",
+      "voice_name": "teems_female_avatar_4",
+      "custom_voice_id": "6USc8wYL9X1bqKiymw23",
+      "original_filename": "teems_female_avatar_4.jpg",
+      "description": "Female Avatar 4 - Custom voice"
+    },
+    "5": {
+      "name": "teems_female_avatar_5",
+      "s3_url": "https://teems-agents.s3.eu-north-1.amazonaws.com/ugc_agent/Avatar/avatar_5.jpg",
+      "voice_name": "teems_female_avatar_5",
+      "custom_voice_id": "dtOs8G3e4nzdsm4wiz5U",
+      "original_filename": "teems_female_avatar_5.jpg",
+      "description": "Female Avatar 5 - Custom voice"
+    },
+    "6": {
+      "name": "teems_female_avatar_6",
+      "s3_url": "https://teems-agents.s3.eu-north-1.amazonaws.com/ugc_agent/Avatar/avatar_6.jpg",
+      "voice_name": "teems_female_avatar_6",
+      "custom_voice_id": "YEwd2KgIhhbmq79ZljrN",
+      "original_filename": "teems_female_avatar_6.jpg",
+      "description": "Female Avatar 6 - Custom voice"
+    },
+    "7": {
+      "name": "teems_male_avatar_2",
+      "s3_url": "https://teems-agents.s3.eu-north-1.amazonaws.com/ugc_agent/Avatar/avatar_7.jpg",
+      "voice_name": "teems_male_avatar_2",
+      "custom_voice_id": "Fuer9whsaUbPCL7xTJpG",
+      "original_filename": "teems_male_avatar_2.jpg",
+      "description": "Male Avatar 2 - Custom voice"
+    },
+    "8": {
+      "name": "teems_male_avatar_3",
+      "s3_url": "https://teems-agents.s3.eu-north-1.amazonaws.com/ugc_agent/Avatar/avatar_8.jpg",
+      "voice_name": "teems_male_avatar_3",
+      "custom_voice_id": "w1vBylaKZiXivg6vLLbH",
+      "original_filename": "teems_male_avatar_3.jpg",
+      "description": "Male Avatar 3 - Custom voice"
+    },
+    "9": {
+      "name": "teems_male_avatar_1",
+      "s3_url": "https://teems-agents.s3.eu-north-1.amazonaws.com/ugc_agent/Avatar/avatar_9.jpg",
+      "voice_name": "teems_male_avatar_1",
+      "custom_voice_id": "CvDof81AseSoypXkLdHA",
+      "original_filename": "teemsai_male_avatar_1.jpg",
+      "description": "Male Avatar 1 - Custom voice"
+    }
+  }
+}

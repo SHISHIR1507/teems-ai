@@ -1,12 +1,24 @@
 import requests
 import time
 from crewai.tools import BaseTool
+from typing import Optional, Type
+from pydantic import BaseModel, Field
 from app.core.config import LIPSYNC_API_KEY
+
+
+class LipsyncToolInput(BaseModel):
+    """Input schema for LipsyncTool."""
+    video_url: str = Field(..., description="URL to the video file")
+    audio_url: str = Field(..., description="URL to the audio file")
+    output_filename: str = Field(default="lipsynced_output", description="Optional custom output filename")
+    poll_interval: int = Field(default=5, description="Seconds between status checks")
+    max_wait: int = Field(default=300, description="Maximum seconds to wait for completion")
 
 
 class LipsyncTool(BaseTool):
     name: str = "Lipsync Video Generator"
     description: str = "Generates a lipsynced video by combining a video file and an audio file using the Sync API lipsync-2-pro model. Accepts URLs for video and audio."
+    args_schema: Type[BaseModel] = LipsyncToolInput
 
     def _check_status(self, job_id: str, api_key: str) -> dict:
         """Check the status of a generation job."""
@@ -82,12 +94,18 @@ class LipsyncTool(BaseTool):
                 print(f"[{elapsed}s] Status: {status}")
                 
                 if status == "COMPLETED":
-                    output_url = status_result.get("outputUrl")
+                    # Get the output URL - could be in different fields
+                    output_url = status_result.get("outputUrl") or status_result.get("output") or status_result.get("url")
                     duration = status_result.get("outputDuration")
+                    
+                    # Debug: Print full result to see what we got
                     print(f"✓ Video generated successfully!")
                     print(f"Duration: {duration}s")
-                    print(f"URL: {output_url}")
-                    return f"Success! Output URL: {output_url}\nDuration: {duration}s\nFull result: {status_result}"
+                    print(f"Output URL: {output_url}")
+                    print(f"Full response: {status_result}")
+                    
+                    # Return the URL clearly
+                    return f"Success! Output URL: {output_url}\nDuration: {duration}s"
                 
                 elif status == "FAILED":
                     error = status_result.get("error", "Unknown error")

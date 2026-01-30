@@ -2,13 +2,16 @@
 Application configuration and environment variables
 """
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings
 from pydantic import Field
 from functools import lru_cache
 from typing import List
 
-load_dotenv()
+# Load environment variables from .env file
+env_path = Path(__file__).parent.parent / ".env"
+load_dotenv(dotenv_path=env_path)
 
 # Backward compatibility: Keep direct env access for existing code
 # LangSmith Configuration
@@ -29,9 +32,11 @@ S3_FOLDER_PREFIX = os.getenv("S3_FOLDER_PREFIX", "UGC_Agent")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o")
-AIML_API_KEY = os.getenv("AIML_API_KEY")  # Keep for image/video generation
+AIML_API_KEY = os.getenv("AIML_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 BANANA_API_KEY = os.getenv("BANANA_API_KEY")
 LIPSYNC_API_KEY = os.getenv("LIPSYNC_API_KEY")
+ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 
 
 # Settings class for dependency injection
@@ -48,15 +53,14 @@ class Settings(BaseSettings):
     s3_bucket_name: str = Field(default="teems-agents", alias="S3_BUCKET_NAME")
     s3_folder_prefix: str = Field(default="UGC_Agent", alias="S3_FOLDER_PREFIX")
     
-    # OpenAI API (for chat)
-    openai_api_key: str = Field(..., alias="OPENAI_API_KEY")
-    openai_base_url: str = Field(default="https://api.openai.com/v1", alias="OPENAI_BASE_URL")
-    llm_model: str = Field(default="gpt-4o", alias="LLM_MODEL")
-    
-    # AIML API (for image/video generation - keep on AIML)
-    aiml_api_key: str = Field(default="", alias="AIML_API_KEY")
+    # AI/ML API Keys
+    openai_api_key: str | None = Field(None, alias="OPENAI_API_KEY")
+    aiml_api_key: str = Field(..., alias="AIML_API_KEY")
+    gemini_api_key: str | None = Field(None, alias="GEMINI_API_KEY")
     banana_api_key: str | None = Field(None, alias="BANANA_API_KEY")
     lipsync_api_key: str | None = Field(None, alias="LIPSYNC_API_KEY")
+    elevenlabs_api_key: str | None = Field(None, alias="ELEVENLABS_API_KEY")
+
     
     # LangSmith Configuration
     langchain_tracing_v2: str = Field(default="true", alias="LANGCHAIN_TRACING_V2")

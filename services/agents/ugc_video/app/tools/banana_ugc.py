@@ -3,12 +3,13 @@ import base64
 from crewai.tools import BaseTool
 from typing import Type, List, Optional
 from pydantic import BaseModel, Field
-import langsmith
-from langsmith import traceable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 from datetime import datetime
-from app.core.config import AIML_API_KEY, S3_FOLDER_PREFIX
+from io import BytesIO
+from google import genai
+from PIL import Image
+from app.core.config import GEMINI_API_KEY, S3_FOLDER_PREFIX
 from app.services.s3_utils import upload_bytes_to_s3
 
 
@@ -26,14 +27,9 @@ class BananaUGCInput(BaseModel):
 
 class BananaUGCTool(BaseTool):
     name: str = "Banana UGC Image Generator"
-    description: str = "Generates 4 UGC-style images in parallel where a person is showcasing a product. Takes S3 URLs and a list of 4 prompts, generates all images concurrently."
+    description: str = "Generates 4 UGC-style images in parallel where a person is showcasing a product. Takes S3 URLs and a list of 4 prompts, generates all images concurrently using Google Gemini."
     args_schema: Type[BaseModel] = BananaUGCInput
 
-    @traceable(
-        name="banana_ugc_tool_parallel",
-        tags=["image-generation", "banana-api", "ugc", "parallel"],
-        metadata={"model": "google/nano-banana-pro-edit", "provider": "aiml-api", "num_images": 4}
-    )
     def _run(
         self,
         person_image_url: str,
@@ -43,279 +39,211 @@ class BananaUGCTool(BaseTool):
         upload_to_s3: bool = False
     ) -> str:
         """
-        Generate 4 UGC images in parallel using AI/ML API with google/nano-banana-pro model.
-        Uses S3 URLs directly - no local file I/O or base64 encoding needed.
-        Each prompt gets its own API call, all executed concurrently.
+        Generate 4 UGC images in parallel using Google Gemini API.
+        Optimized: reuse client, 1K resolution, batch S3 upload.
         """
         if len(prompts) != 4:
             return f"Error: Expected exactly 4 prompts, got {len(prompts)}"
 
-        if not AIML_API_KEY:
-            return "Error: AIML_API_KEY not found in environment variables"
+        if not GEMINI_API_KEY:
+            return "Error: GEMINI_API_KEY not found in environment variables"
 
-        # Validate URLs
-        with langsmith.trace(
-            name="validate_image_urls",
-            inputs={
-                "person_image_url": person_image_url,
-                "product_image_url": product_image_url
-            },
-            tags=["validation", "s3-urls"],
-            metadata={}
-        ) as validate_trace:
-            if not person_image_url.startswith('http'):
-                error_msg = f"Error: Invalid person image URL: {person_image_url}"
-                validate_trace.outputs = {"error": error_msg}
-                return error_msg
-            
-            if not product_image_url.startswith('http'):
-                error_msg = f"Error: Invalid product image URL: {product_image_url}"
-                validate_trace.outputs = {"error": error_msg}
-                return error_msg
-            
-            validate_trace.outputs = {"status": "urls_validated"}
-            print(f"✅ Using S3 URLs directly (no file I/O needed)")
+        # Validate and download images once
+        if not person_image_url.startswith('http') or not product_image_url.startswith('http'):
+            return f"Error: Invalid image URLs"
 
-        # Generate images in parallel
-        print(f"\n🚀 Starting parallel generation of 4 images...")
+        print(f"✅ Downloading images from S3...")
+        try:
+            person_img = self._download_image(person_image_url)
+            product_img = self._download_image(product_image_url)
+        except Exception as e:
+            return f"Error downloading images: {str(e)}"
+
+        # Create Gemini client once (optimization #1)
+        client = genai.Client(api_key=GEMINI_API_KEY)
+
+        # Generate images in parallel (without S3 upload)
+        print(f"\n🚀 Starting parallel generation of 4 images with Gemini...")
         start_time = time.time()
 
         with ThreadPoolExecutor(max_workers=4) as executor:
-            # Submit all 4 API calls concurrently
             futures = {}
             for idx, prompt in enumerate(prompts, 1):
                 future = executor.submit(
                     self._generate_single_image,
-                    person_image_url,
-                    product_image_url,
+                    client,  # Pass shared client
+                    person_img,
+                    product_img,
                     prompt,
-                    f"generated_ugc_image_{idx}.png",
-                    idx,
-                    AIML_API_KEY,
-                    conversation_id,
-                    upload_to_s3
+                    idx
                 )
                 futures[future] = idx
 
-            # Collect results as they complete
+            # Collect results (image bytes only, no S3 upload yet)
             results = {}
             for future in as_completed(futures):
                 idx = futures[future]
                 try:
                     result = future.result()
                     results[idx] = result
-                    print(f"✅ Image {idx}/4 completed")
+                    print(f"✅ Image {idx}/4 generated")
                 except Exception as e:
-                    error_msg = f"Error generating image {idx}: {str(e)}"
-                    results[idx] = {"success": False, "error": error_msg}
-                    print(f"❌ Image {idx}/4 failed: {error_msg}")
+                    results[idx] = {"success": False, "error": str(e)}
+                    print(f"❌ Image {idx}/4 failed: {str(e)}")
+
+        gen_time = time.time() - start_time
+        print(f"⚡ Generation completed in {gen_time:.2f}s")
+
+        # Batch upload to S3 (optimization #4)
+        if upload_to_s3 and conversation_id:
+            print(f"☁️ Uploading {len([r for r in results.values() if r.get('success')])} images to S3...")
+            upload_start = time.time()
+            
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                upload_futures = {}
+                for idx in sorted(results.keys()):
+                    if results[idx].get("success") and results[idx].get("image_bytes"):
+                        future = executor.submit(
+                            self._upload_to_s3,
+                            results[idx]["image_bytes"],
+                            idx,
+                            conversation_id
+                        )
+                        upload_futures[future] = idx
+                
+                for future in as_completed(upload_futures):
+                    idx = upload_futures[future]
+                    try:
+                        s3_url = future.result()
+                        results[idx]["s3_url"] = s3_url
+                        print(f"   ✅ Image {idx} uploaded")
+                    except Exception as e:
+                        results[idx]["success"] = False
+                        results[idx]["error"] = f"S3 upload failed: {str(e)}"
+                        print(f"   ❌ Image {idx} upload failed: {str(e)}")
+            
+            upload_time = time.time() - upload_start
+            print(f"☁️ Upload completed in {upload_time:.2f}s")
 
         total_time = time.time() - start_time
-        print(f"\n⚡ All 4 images generated in {total_time:.2f}s (parallel)")
+        print(f"\n⚡ Total time: {total_time:.2f}s")
 
-        # Format response with S3 URLs
-        success_count = sum(1 for r in results.values() if r.get("success"))
-        s3_urls = []
-        
-        for idx in sorted(results.keys()):
-            if results[idx].get("success") and results[idx].get('s3_url'):
-                s3_urls.append(results[idx]['s3_url'])
+        # Format response
+        success_count = sum(1 for r in results.values() if r.get("success") and r.get("s3_url"))
+        s3_urls = [results[idx].get('s3_url') for idx in sorted(results.keys()) if results[idx].get("success") and results[idx].get('s3_url')]
         
         if success_count == 4 and len(s3_urls) == 4:
-            # Return structured response with S3 URLs
-            response = f"✅ SUCCESS: All 4 images generated and uploaded to S3!\n"
-            response += f"Total time: {total_time:.2f}s\n\n"
-            response += "[S3_URLS]\n"
-            for url in s3_urls:
-                response += f"{url}\n"
-            response += "[/S3_URLS]"
+            response = f"✅ SUCCESS: All 4 images generated in {total_time:.2f}s!\n\n[S3_URLS]\n"
+            response += "\n".join(s3_urls)
+            response += "\n[/S3_URLS]"
             return response
         else:
-            response = f"⚠️ PARTIAL SUCCESS: {success_count}/4 images generated, {len(s3_urls)}/4 uploaded to S3\n\n"
+            response = f"⚠️ PARTIAL SUCCESS: {success_count}/4 images generated\n\n"
             for idx in sorted(results.keys()):
-                if results[idx].get("success"):
-                    result_data = results[idx]
-                    if result_data.get('s3_url'):
-                        response += f"✅ Image {idx}: {result_data['s3_url']}\n"
-                    else:
-                        response += f"⚠️ Image {idx}: Generated but S3 upload failed\n"
+                if results[idx].get("success") and results[idx].get("s3_url"):
+                    response += f"✅ Image {idx}: {results[idx].get('s3_url')}\n"
                 else:
                     response += f"❌ Image {idx}: {results[idx].get('error', 'Unknown error')}\n"
             return response
 
-    @traceable(
-        name="generate_single_image",
-        tags=["image-generation", "banana-api", "single-call"],
-        metadata={"model": "google/nano-banana-pro-edit"}
-    )
+    def _download_image(self, url: str) -> Image.Image:
+        """Download image from URL and return PIL Image"""
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+        return Image.open(BytesIO(response.content))
+
     def _generate_single_image(
         self,
-        person_image_url: str,
-        product_image_url: str,
+        client: genai.Client,  # Reuse client (optimization #1)
+        person_img: Image.Image,
+        product_img: Image.Image,
         prompt: str,
-        output_filename: str,
-        image_index: int,
-        api_key: str,
-        conversation_id: Optional[str] = None,
-        upload_to_s3: bool = False
+        image_index: int
     ) -> dict:
         """
-        Generate a single UGC image (called in parallel by ThreadPoolExecutor).
-        Uses S3 URLs directly - no file I/O or base64 encoding.
-        Returns dict with success status and S3 URL or error.
+        Generate a single UGC image using Google Gemini (called in parallel).
+        Returns dict with success status and image bytes (no S3 upload here).
         """
+        try:
+            from google.genai import types
+            
+            # Simple, direct prompt - let the model naturally blend the two images
+            full_prompt = (
+                f"Create a realistic UGC photo of this person holding and showcasing this product. "
+                f"{prompt}. "
+                f"Keep the person's face and identity exactly as shown. Natural lighting, casual UGC style."
+            )
 
-        # AI/ML API endpoint
-        url = "https://api.aimlapi.com/v1/images/generations"
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json"
-        }
-
-        # Construct prompt for image-to-image composition
-        full_prompt = (
-            f"Combine these images to create a realistic UGC-style photo where the person "
-            f"from the first image is naturally showcasing the product from the second image. "
-            f"{prompt}. Keep the same person's face and identity, and the exact product appearance. "
-            f"Make it look like authentic user-generated content."
-        )
-
-        # Use S3 URLs directly (no base64 encoding needed!)
-        payload = {
-            "model": "google/nano-banana-pro-edit",
-            "prompt": full_prompt,
-            "image_urls": [
-                person_image_url,  # Direct S3 URL
-                product_image_url  # Direct S3 URL
-            ],
-            "aspect_ratio": "1:1",
-            "resolution": "1K",
-            "num_images": 1
-        }
-
-        # Call image generation API with detailed tracing
-        with langsmith.trace(
-            name=f"call_banana_api_image_{image_index}",
-            inputs={
-                "model": "google/nano-banana-pro-edit",
-                "prompt": full_prompt,
-                "image_index": image_index,
-                "person_image_url": person_image_url,
-                "product_image_url": product_image_url
-            },
-            tags=["api-call", "image-generation", "aiml-api", "s3-urls"],
-            metadata={
-                "provider": "AI/ML API",
-                "endpoint": url,
-                "model": "google/nano-banana-pro-edit",
-                "image_index": image_index,
-                "uses_s3_urls": True
-            }
-        ) as api_trace:
-            try:
-                call_start = time.time()
-
-                print(f"   🎨 Calling API for image {image_index} (using S3 URLs)...")
-                
-                response = requests.post(url, json=payload, headers=headers, timeout=180)
-
-                latency = time.time() - call_start
-
-                # Log API call metadata
-                api_trace.metadata.update({
-                    "status_code": response.status_code,
-                    "latency_seconds": round(latency, 2),
-                    "response_size_bytes": len(response.content)
-                })
-
-                # Accept both 200 and 201 status codes
-                if response.status_code not in [200, 201]:
-                    error_msg = f"API returned status {response.status_code}: {response.text[:500]}"
-                    api_trace.outputs = {"error": error_msg, "status_code": response.status_code}
-                    return {"success": False, "error": error_msg}
-
-                result = response.json()
-                api_trace.outputs = {"status": "success", "result_keys": list(result.keys())}
-
-                # Estimate cost
-                estimated_cost = 0.02
-                api_trace.metadata["estimated_cost_usd"] = estimated_cost
-
-            except requests.exceptions.Timeout:
-                error_msg = f"API request timed out after 180 seconds"
-                api_trace.outputs = {"error": error_msg}
-                return {"success": False, "error": error_msg}
-            except requests.exceptions.RequestException as e:
-                error_msg = f"Error calling AI/ML API: {str(e)[:200]}"
-                api_trace.outputs = {"error": error_msg}
-                return {"success": False, "error": error_msg}
-
-        # Save the generated image
-        with langsmith.trace(
-            name=f"save_generated_image_{image_index}",
-            tags=["image-output", "file-save", "s3-upload"],
-            metadata={"image_index": image_index}
-        ) as save_trace:
-            if "data" in result and len(result["data"]) > 0:
-                image_data = result["data"][0]
-
-                # Check if it's a URL or base64
-                if "url" in image_data:
-                    # Download from URL
-                    img_response = requests.get(image_data["url"])
-                    img_response.raise_for_status()
-                    image_bytes = img_response.content
-
-                    save_trace.metadata.update({
-                        "method": "url_download",
-                        "image_url": image_data["url"],
-                        "image_size_bytes": len(image_bytes)
-                    })
-
-                elif "b64_json" in image_data:
-                    # Decode base64
-                    image_bytes = base64.b64decode(image_data["b64_json"])
-
-                    save_trace.metadata.update({
-                        "method": "base64_decode",
-                        "image_size_bytes": len(image_bytes)
-                    })
-                else:
-                    error_msg = f"Unexpected image format in response"
-                    save_trace.outputs = {"error": error_msg}
-                    return {"success": False, "error": error_msg}
-                
-                # Upload directly to S3 if requested (NO local file storage)
-                s3_url = None
-                if upload_to_s3 and conversation_id:
-                    try:
-                        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-                        s3_filename = f"generated_ugc_{timestamp}_{image_index}.png"
-                        s3_key = f"{S3_FOLDER_PREFIX}/generated/{conversation_id}/{s3_filename}"
-                        
-                        # Upload bytes directly to S3 (no local file!)
-                        s3_url = upload_bytes_to_s3(
-                            image_bytes, 
-                            s3_key, 
-                            "image/png",
-                            public_read=False  # Keep private, use presigned URLs if needed
+            print(f"   🎨 Generating image {image_index} with identity lock...")
+            
+            # Call Gemini API with proper config for image generation
+            # Try with person image FIRST (as primary subject), product SECOND (as reference)
+            max_retries = 2
+            for attempt in range(max_retries):
+                try:
+                    response = client.models.generate_content(
+                        model="gemini-3-pro-image-preview",
+                        contents=[person_img, product_img, full_prompt],  # Person FIRST, then product, then prompt
+                        config=types.GenerateContentConfig(
+                            response_modalities=['TEXT', 'IMAGE'],
+                            image_config=types.ImageConfig(
+                                aspect_ratio="9:16",  # Vertical format for UGC/social media
+                                image_size="1K"  # Optimization #2: 1K for speed
+                            )
                         )
-                        save_trace.metadata["s3_url"] = s3_url
-                        print(f"   ☁️ Uploaded to S3: {s3_url}")
-                        
-                    except Exception as e:
-                        print(f"   ⚠️ S3 upload failed: {str(e)}")
-                        # Continue even if S3 upload fails
-                else:
-                    # If not uploading to S3, we have no local storage - return API URL
-                    s3_url = image_data.get("url")
-                    print(f"   ⚠️ S3 upload disabled, using API URL: {s3_url}")
-                
-                save_trace.outputs = {"s3_url": s3_url, "no_local_storage": True}
+                    )
+                    break
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        print(f"   ⚠️ Retry {attempt + 1}/{max_retries} for image {image_index}")
+                        time.sleep(1)
+                    else:
+                        raise e
 
-                return {"success": True, "s3_url": s3_url}
+            # Extract generated image from response
+            image_bytes = None
+            
+            # Try different response structures
+            if hasattr(response, 'candidates') and response.candidates:
+                # Response has candidates
+                for candidate in response.candidates:
+                    if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                        for part in candidate.content.parts:
+                            if hasattr(part, 'inline_data') and part.inline_data is not None:
+                                # Extract image bytes directly from inline_data
+                                image_bytes = part.inline_data.data
+                                break
+                    if image_bytes:
+                        break
+            elif hasattr(response, 'parts'):
+                # Direct parts access
+                for part in response.parts:
+                    if hasattr(part, 'inline_data') and part.inline_data is not None:
+                        # Extract image bytes directly from inline_data
+                        image_bytes = part.inline_data.data
+                        break
 
-            else:
-                error_msg = f"No image data in response"
-                save_trace.outputs = {"error": error_msg}
-                return {"success": False, "error": error_msg}
+            if not image_bytes:
+                return {"success": False, "error": "No image data in response"}
+
+            # Return bytes only, S3 upload happens later (optimization #4)
+            return {"success": True, "image_bytes": image_bytes}
+
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    def _upload_to_s3(
+        self,
+        image_bytes: bytes,
+        image_index: int,
+        conversation_id: str
+    ) -> str:
+        """
+        Upload image bytes to S3 (called in batch after generation).
+        Returns S3 URL.
+        """
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        s3_filename = f"generated_ugc_{timestamp}_{image_index}.png"
+        s3_key = f"{S3_FOLDER_PREFIX}/generated/{conversation_id}/{s3_filename}"
+        
+        return upload_bytes_to_s3(image_bytes, s3_key, "image/png", public_read=False)

@@ -10,6 +10,7 @@ class BrandSyncRequest(BaseModel):
     industry: str = Field(..., description="Brand industry")
     audience: str = Field(..., description="Target audience")
     vibe: str = Field(..., description="Brand vibe/tone")
+    product_name: str = Field(..., description="Product name")
     conversation_id: Optional[str] = Field(None, description="Optional conversation ID")
     
     class Config:
@@ -18,6 +19,7 @@ class BrandSyncRequest(BaseModel):
                 "industry": "skincare",
                 "audience": "Gen Z women",
                 "vibe": "authentic and relatable",
+                "product_name": "Glow Serum",
                 "conversation_id": "optional-uuid"
             }
         }
@@ -33,12 +35,32 @@ class BrandSyncResponse(BaseModel):
     was_already_synced: bool = Field(default=False, description="Whether brand was already synced before this call")
 
 
+class ConversationState(BaseModel):
+    """Conversation state tracking"""
+    brand_locked: bool = Field(False, description="Whether brand context is synced")
+    brand_industry: Optional[str] = Field(None, description="Brand industry")
+    brand_audience: Optional[str] = Field(None, description="Target audience")
+    brand_vibe: Optional[str] = Field(None, description="Brand vibe")
+    product_name: Optional[str] = Field(None, description="Product name")
+    person_url: Optional[str] = Field(None, description="Person/creator image URL")
+    avatar_id: Optional[int] = Field(None, description="Avatar ID if using predefined avatar")
+    product_url: Optional[str] = Field(None, description="Product image URL")
+    generated_images: List[str] = Field(default_factory=list, description="Generated UGC image URLs")
+    has_person: bool = Field(False, description="Whether person image is uploaded")
+    has_product: bool = Field(False, description="Whether product image is uploaded")
+    has_product_name: bool = Field(False, description="Whether product name is provided")
+    has_generated_images: bool = Field(False, description="Whether UGC images are generated")
+    next_step: Optional[str] = Field(None, description="Suggested next step for user")
+
+
 class ChatResponse(BaseModel):
     """Response schema for UGC chat/upload"""
     conversation_id: str = Field(..., description="Conversation ID")
     assistant_message: str = Field(..., description="Assistant's response message")
     steps: List[Dict] = Field(..., description="Processing steps")
     generated_images: Optional[List[str]] = Field(None, description="Generated image URLs")
+    conversation_state: Optional[ConversationState] = Field(None, description="Current conversation state")
+    show_regenerate_button: bool = Field(False, description="Whether to show regenerate button in UI")
     timestamp: str = Field(..., description="ISO timestamp")
     trace_url: Optional[str] = Field(None, description="LangSmith trace URL")
 
@@ -46,21 +68,21 @@ class ChatResponse(BaseModel):
 class ScriptRequest(BaseModel):
     """Request schema for script generation"""
     ugc_image_path: str = Field(..., description="S3 URL or path to UGC image")
-    product_name: str = Field(..., description="Product name")
-    avatar_id: int = Field(1, description="Avatar ID for voice selection")
+    conversation_id: str = Field(..., description="Conversation ID (required to retrieve brand context)")
+    product_name: Optional[str] = Field(None, description="Product name (retrieved from conversation if not provided)")
+    avatar_id: Optional[int] = Field(None, description="Avatar ID for voice selection (retrieved from conversation if not provided)")
     tone: Optional[str] = Field("energetic and authentic", description="Script tone")
     platform: Optional[str] = Field("Instagram", description="Target platform")
-    conversation_id: Optional[str] = Field(None, description="Conversation ID")
     
     class Config:
         json_schema_extra = {
             "example": {
                 "ugc_image_path": "https://s3.../generated_image_1.png",
-                "product_name": "Glow Serum",
+                "conversation_id": "uuid-here",
+                "product_name": "Glow Serum (optional - retrieved from conversation)",
                 "avatar_id": 1,
                 "tone": "energetic and authentic",
-                "platform": "Instagram",
-                "conversation_id": "optional-uuid"
+                "platform": "Instagram"
             }
         }
 

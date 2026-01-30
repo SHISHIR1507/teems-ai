@@ -93,6 +93,8 @@ async def brand_sync_endpoint(
                 brand_vibe=request.vibe,
                 brand_locked=True
             )
+            # Update product name
+            await db_helpers.update_product_name(session, conversation_id, tenant_id, request.product_name)
         else:
             # Check if brand was already synced
             was_already_synced = conversation.brand_locked if hasattr(conversation, 'brand_locked') else False
@@ -119,6 +121,8 @@ async def brand_sync_endpoint(
                 request.audience,
                 request.vibe
             )
+            # Update product name
+            await db_helpers.update_product_name(session, conversation_id, tenant_id, request.product_name)
         
         # Add system message
         await db_helpers.add_message(
@@ -126,7 +130,7 @@ async def brand_sync_endpoint(
             conversation_id,
             tenant_id,
             "system",
-            f"Brand sync: {request.industry} | {request.audience} | {request.vibe}"
+            f"Brand sync: {request.industry} | {request.audience} | {request.vibe} | Product: {request.product_name}"
         )
         
         run_tree = langsmith.get_current_run_tree()

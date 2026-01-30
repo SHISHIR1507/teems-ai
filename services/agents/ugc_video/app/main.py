@@ -1,10 +1,15 @@
 """
 FastAPI application entry point
 """
+# Fix for Python 3.13 asyncio event loop issue on Windows
+import sys
+if sys.platform == 'win32':
+    import asyncio
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 import os
-import sys
 from pathlib import Path
 
 # Dynamically locate shared libs for CORS helper
@@ -59,7 +64,7 @@ else:
         )
 
 from app.core.database import init_db
-from app.api.routes import brand_sync, ugc, conversation, health
+from app.api.routes import brand_sync, ugc, conversation, health, avatars
 
 app = FastAPI(
     title="UGC Orchestrator API with DB & S3",
@@ -75,6 +80,7 @@ app.include_router(health.router, tags=["health"])
 app.include_router(brand_sync.router, tags=["brand-sync"])
 app.include_router(ugc.router, tags=["ugc"])
 app.include_router(conversation.router, tags=["conversations"])
+app.include_router(avatars.router, tags=["avatars"])
 
 
 @app.on_event("startup")
