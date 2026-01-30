@@ -44,7 +44,7 @@ except ImportError:
             allow_headers=["*"],
         )
 
-from .auth import AuthenticatedUser, require_tenant
+from .auth import Auth0Client, AuthenticatedUser, authenticate_websocket, get_auth0_client
 from .config import Settings, get_settings
 
 redis_client: Optional[Redis] = None
@@ -99,11 +99,22 @@ def create_app() -> FastAPI:
     @app.websocket("/ws")
     async def websocket_handler(
         websocket: WebSocket,
-        user: AuthenticatedUser = Depends(require_tenant()),
         settings: Settings = Depends(get_settings),
         redis: Optional[Redis] = Depends(get_redis),
+        auth0_client: Auth0Client = Depends(get_auth0_client),
     ) -> None:
         await websocket.accept()
+
+        # First-message authentication
+        user = await authenticate_websocket(
+            websocket=websocket,
+            client=auth0_client,
+            timeout_seconds=10.0,
+            require_tenant_id=True,
+        )
+        if user is None:
+            # Socket already closed by authenticate_websocket
+            return
 
         if redis is None:
             await websocket.send_json({"type": "ERROR", "error": "Redis not configured"})
@@ -114,7 +125,7 @@ def create_app() -> FastAPI:
         pump_task: asyncio.Task | None = None
 
         try:
-            await websocket.send_json({"type": "WELCOME", "user": user.sub})
+            # Send welcome after auth success (user already got AUTH_SUCCESS)
             while True:
                 message = await websocket.receive_json()
                 action = message.get("action")
