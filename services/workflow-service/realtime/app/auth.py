@@ -154,3 +154,105 @@ def require_tenant():
     return tenant_checker
 
 
+async def authenticate_websocket(
+    websocket: "WebSocket",
+    client: Auth0Client,
+    timeout_seconds: float = 10.0,
+    require_tenant_id: bool = True,
+) -> AuthenticatedUser | None:
+    """
+    Authenticate a WebSocket connection using first-message auth pattern.
+    
+    The client must send {"action": "auth", "token": "<JWT>"} as the first message.
+    
+    Args:
+        websocket: The WebSocket connection (must be already accepted)
+        client: Auth0Client instance for token validation
+        timeout_seconds: How long to wait for auth message before closing
+        require_tenant_id: If True, reject users without tenant_id
+        
+    Returns:
+        AuthenticatedUser on success, None on failure (socket will be closed)
+    """
+    import asyncio
+    from loguru import logger
+    
+    try:
+        # Wait for auth message with timeout
+        try:
+            message = await asyncio.wait_for(
+                websocket.receive_json(),
+                timeout=timeout_seconds
+            )
+        except asyncio.TimeoutError:
+            logger.warning("WebSocket auth timeout - no auth message received")
+            await websocket.send_json({
+                "type": "AUTH_FAILED",
+                "error": f"Authentication timeout - send auth message within {int(timeout_seconds)} seconds"
+            })
+            await websocket.close(code=4001)
+            return None
+        
+        # Validate message format
+        action = message.get("action")
+        if action != "auth":
+            logger.warning("WebSocket first message was not auth: {}", action)
+            await websocket.send_json({
+                "type": "AUTH_FAILED",
+                "error": "First message must be auth action"
+            })
+            await websocket.close(code=4002)
+            return None
+        
+        token = message.get("token")
+        if not token:
+            logger.warning("WebSocket auth message missing token")
+            await websocket.send_json({
+                "type": "AUTH_FAILED",
+                "error": "Token is required"
+            })
+            await websocket.close(code=4003)
+            return None
+        
+        # Validate token with Auth0
+        try:
+            user = await client.verify_access_token(token)
+        except ValueError as exc:
+            logger.warning("WebSocket auth failed: {}", exc)
+            await websocket.send_json({
+                "type": "AUTH_FAILED",
+                "error": str(exc)
+            })
+            await websocket.close(code=4004)
+            return None
+        
+        # Check tenant_id if required
+        if require_tenant_id and not user.tenant_id:
+            logger.warning("WebSocket auth rejected - user {} has no tenant_id", user.sub)
+            await websocket.send_json({
+                "type": "AUTH_FAILED", 
+                "error": "User does not have a tenant assigned"
+            })
+            await websocket.close(code=4005)
+            return None
+        
+        # Success!
+        logger.info("WebSocket authenticated: user={}, tenant={}", user.sub, user.tenant_id)
+        await websocket.send_json({
+            "type": "AUTH_SUCCESS",
+            "user": user.sub,
+            "tenant_id": user.tenant_id,
+        })
+        return user
+        
+    except Exception as exc:
+        logger.exception("Unexpected error during WebSocket auth: {}", exc)
+        try:
+            await websocket.send_json({
+                "type": "AUTH_FAILED",
+                "error": "Internal authentication error"
+            })
+            await websocket.close(code=1011)
+        except Exception:
+            pass
+        return None
