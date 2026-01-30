@@ -113,20 +113,51 @@ class MCPClient:
             print("⚠️  No tools found or error listing tools")
             
     def get_tools_for_llm(self) -> List[Dict[str, Any]]:
-        """Convert MCP tools to OpenAI function calling format"""
+        """Convert MCP tools to OpenAI function calling format.
+        
+        Note: tenant_id is filtered out from tool schemas because it's automatically
+        injected at runtime by llm_host.py from the authenticated user's token.
+        This prevents the LLM from asking users for tenant_id.
+        """
+        # Parameters that should be hidden from LLM (injected at runtime)
+        HIDDEN_PARAMS = {"tenant_id"}
+        
         llm_tools = []
         
         for tool in self.tools:
+            # Get the input schema
+            input_schema = tool.get("inputSchema", {
+                "type": "object",
+                "properties": {},
+                "required": []
+            })
+            
+            # Filter out hidden parameters from properties
+            filtered_properties = {
+                k: v for k, v in input_schema.get("properties", {}).items()
+                if k not in HIDDEN_PARAMS
+            }
+            
+            # Filter out hidden parameters from required list
+            filtered_required = [
+                r for r in input_schema.get("required", [])
+                if r not in HIDDEN_PARAMS
+            ]
+            
+            # Build filtered schema
+            filtered_schema = {
+                "type": input_schema.get("type", "object"),
+                "properties": filtered_properties,
+            }
+            if filtered_required:
+                filtered_schema["required"] = filtered_required
+            
             llm_tool = {
                 "type": "function",
                 "function": {
                     "name": tool["name"],
                     "description": tool.get("description", ""),
-                    "parameters": tool.get("inputSchema", {
-                        "type": "object",
-                        "properties": {},
-                        "required": []
-                    })
+                    "parameters": filtered_schema
                 }
             }
             llm_tools.append(llm_tool)

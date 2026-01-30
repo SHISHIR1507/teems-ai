@@ -113,13 +113,18 @@ class LLMHost:
                                 text_parts.append(text)
                 
                 content = "\n\n".join(text_parts) if text_parts else "No content available"
+                # DEBUG: Log extracted content
+                print(f"   📝 Extracted content ({len(content)} chars): {content[:300]}...")
             else:
                 # Fallback: convert entire result to JSON string
                 content = json.dumps(result, ensure_ascii=False)
+                print(f"   📝 Fallback JSON content: {content[:200]}...")
         elif isinstance(result, str):
             content = result if result else "Empty result"
+            print(f"   📝 String content: {content[:200]}...")
         else:
             content = str(result) if result is not None else "No result"
+            print(f"   📝 Other content: {content[:200]}...")
         
         # Final safety check: ensure content is never None or empty
         if not content or content.strip() == "":
@@ -148,8 +153,8 @@ class LLMHost:
             tool_args = json.loads(tool_call["function"]["arguments"])
             tool_call_id = tool_call["id"]
             
-            # Inject tenant_id for PostgreSQL MCP tools
-            if tenant_id and tool_name == "query":
+            # Inject tenant_id for all MCP tools that require tenant isolation
+            if tenant_id and tool_name in ["query", "query_knowledge_base", "list_documents"]:
                 tool_args["tenant_id"] = tenant_id
                 print(f"   → Calling {tool_name} with tenant_id: {tenant_id}")
             else:

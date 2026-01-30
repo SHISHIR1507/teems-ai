@@ -1,6 +1,9 @@
 """
-Migration script to create restricted PostgreSQL role for MCP server
-Grants SELECT-only access to specific tables from Eve and all 5 agents
+Migration script to update table permissions for existing MCP role.
+ASSUMES the role already exists with correct password.
+
+Use this script after initial setup to safely add/update table grants.
+To create the role initially, use create_mcp_restricted_role.py instead.
 """
 import asyncio
 import asyncpg
@@ -15,7 +18,11 @@ agent_env = Path(__file__).parent.parent / "agent" / ".env"
 if agent_env.exists():
     load_dotenv(agent_env)
 
-# Allowed tables (28 total)
+# MCP role configuration (already created in database)
+MCP_USER = os.getenv("POSTGRES_MCP_USER", "eve_mcp_readonly")
+# MCP_PASSWORD not needed - we're not creating/updating the user
+
+# Allowed tables (38 total)
 ALLOWED_TABLES = [
     # Eve Service (4 tables)
     "eve_documents",
@@ -50,14 +57,19 @@ ALLOWED_TABLES = [
     "ugc_conversations",
     "ugc_messages",
     "ugc_assets",
-
-
-
     # Onboarding Service (2 tables)
     "onboarding_states",
     "conversation_messages",
     # Brandfetch API (1 table)
     "brandfetch_results",
+    # Agent Manager (7 tables)
+    "agent_assignments",
+    "agent_executions",
+    "agent_runs",
+    "agent_versions",
+    "agents",
+    "user_integrations",
+    "user_preferences",
 ]
 
 async def migrate():
@@ -67,18 +79,8 @@ async def migrate():
         print("❌ DATABASE_URL not found in environment variables")
         return
     
-    # Get MCP role password from environment
-    mcp_password = os.getenv("POSTGRES_MCP_PASSWORD")
-    if not mcp_password:
-        print("❌ POSTGRES_MCP_PASSWORD not found in environment variables")
-        print("   Run: python services/eve/migrations/generate_mcp_password.py")
-        print("   Then set: export POSTGRES_MCP_PASSWORD=<generated_password>")
-        return
-    
-    mcp_user = os.getenv("POSTGRES_MCP_USER", "eve_mcp_readonly")
-    
     # Convert asyncpg URL to regular postgres URL for asyncpg.connect
-    conn_url = database_url.replace("postgresql+asyncpg://", "postgresql://").replace("postgresql://", "postgresql://")
+    conn_url = database_url.replace("postgresql+asyncpg://", "postgresql://")
     
     print("Connecting to database...")
     conn = await asyncpg.connect(conn_url)
@@ -86,53 +88,31 @@ async def migrate():
     try:
         # Start transaction
         async with conn.transaction():
-            # Check if role already exists
-            print(f"\nChecking if role '{mcp_user}' exists...")
+            # Verify role exists (fail early if not)
+            print(f"\nVerifying role '{MCP_USER}' exists...")
             role_exists = await conn.fetchval("""
                 SELECT EXISTS(
                     SELECT 1 FROM pg_roles WHERE rolname = $1
                 )
-            """, mcp_user)
+            """, MCP_USER)
             
-            # Escape password for SQL (double single quotes)
-            escaped_password = mcp_password.replace("'", "''")
+            if not role_exists:
+                print(f"❌ Role '{MCP_USER}' does not exist!")
+                print("   Run create_mcp_restricted_role.py first to create the role.")
+                return
             
-            if role_exists:
-                print(f"✓ Role '{mcp_user}' already exists")
-                # Update password if role exists
-                await conn.execute(f"""
-                    ALTER ROLE {mcp_user} WITH PASSWORD '{escaped_password}'
-                """)
-                print(f"✓ Password updated for role '{mcp_user}'")
-            else:
-                # Create role
-                print(f"\nCreating role '{mcp_user}'...")
-                await conn.execute(f"""
-                    CREATE ROLE {mcp_user} WITH LOGIN PASSWORD '{escaped_password}'
-                """)
-                print(f"✅ Role '{mcp_user}' created")
+            print(f"✓ Role '{MCP_USER}' exists")
             
-            # Revoke all permissions on public schema first
-            print("\nRevoking all permissions on public schema...")
-            await conn.execute(f"REVOKE ALL ON SCHEMA public FROM {mcp_user}")
-            await conn.execute(f"REVOKE ALL ON ALL TABLES IN SCHEMA public FROM {mcp_user}")
+            # Revoke all permissions on public schema first (clean slate)
+            print("\nRevoking all current permissions on public schema...")
+            await conn.execute(f"REVOKE ALL ON SCHEMA public FROM {MCP_USER}")
+            await conn.execute(f"REVOKE ALL ON ALL TABLES IN SCHEMA public FROM {MCP_USER}")
             print("✅ Revoked all permissions on public schema")
             
             # Grant USAGE on schema (needed to access tables)
             print("\nGranting USAGE on public schema...")
-            await conn.execute(f"GRANT USAGE ON SCHEMA public TO {mcp_user}")
+            await conn.execute(f"GRANT USAGE ON SCHEMA public TO {MCP_USER}")
             print("✅ Granted USAGE on public schema")
-            
-            # Revoke access to system schemas
-            # Note: pg_toast removed - we don't have permission and it aborts the transaction
-            print("\nRevoking access to system schemas...")
-            system_schemas = ["pg_catalog", "information_schema"]
-            for schema in system_schemas:
-                try:
-                    await conn.execute(f"REVOKE ALL ON SCHEMA {schema} FROM {mcp_user}")
-                except Exception as e:
-                    print(f"  ⚠️  Could not revoke on {schema}: {e}")
-            print("✅ Revoked access to system schemas")
             
             # Grant SELECT on allowed tables
             print(f"\nGranting SELECT on {len(ALLOWED_TABLES)} allowed tables...")
@@ -151,7 +131,7 @@ async def migrate():
                     
                     if table_exists:
                         await conn.execute(f"""
-                            GRANT SELECT ON TABLE {table_name} TO {mcp_user}
+                            GRANT SELECT ON TABLE {table_name} TO {MCP_USER}
                         """)
                         granted_count += 1
                         print(f"  ✓ Granted SELECT on {table_name}")
@@ -170,7 +150,7 @@ async def migrate():
             print("\nSetting default privileges...")
             await conn.execute(f"""
                 ALTER DEFAULT PRIVILEGES IN SCHEMA public 
-                REVOKE ALL ON TABLES FROM {mcp_user}
+                REVOKE ALL ON TABLES FROM {MCP_USER}
             """)
             print("✅ Default privileges set (future tables won't be accessible)")
             
@@ -183,10 +163,10 @@ async def migrate():
                 AND privilege_type = 'SELECT'
                 AND table_schema = 'public'
                 ORDER BY table_name
-            """, mcp_user)
+            """, MCP_USER)
             
             accessible_table_names = [row['table_name'] for row in accessible_tables]
-            print(f"\n📋 Role '{mcp_user}' has SELECT access to {len(accessible_table_names)} tables:")
+            print(f"\n📋 Role '{MCP_USER}' has SELECT access to {len(accessible_table_names)} tables:")
             for table in accessible_table_names:
                 print(f"   - {table}")
             
@@ -200,13 +180,10 @@ async def migrate():
                 print("\n✅ All accessible tables are in the allowed list")
         
         print("\n" + "="*60)
-        print("✅ MCP restricted role migration completed successfully!")
+        print("✅ MCP table grants updated successfully!")
         print("="*60)
-        print(f"\nRole: {mcp_user}")
+        print(f"\nRole: {MCP_USER}")
         print(f"Accessible tables: {len(accessible_table_names)}")
-        print("\nNext steps:")
-        print("1. Ensure POSTGRES_MCP_USER and POSTGRES_MCP_PASSWORD are set in environment")
-        print("2. Restart Eve service to use the new MCP connection")
         
     except Exception as e:
         print(f"\n❌ Migration failed: {e}")

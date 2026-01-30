@@ -13,9 +13,19 @@ from .base import Base
 
 settings = get_settings()
 
+# Convert async URL to sync URL for legacy sync code
+# postgresql+asyncpg:// -> postgresql://
+def _get_sync_url(url: str) -> str:
+    """Convert async database URL to sync URL for synchronous SQLAlchemy."""
+    if "+asyncpg" in url:
+        return url.replace("+asyncpg", "")
+    return url
+
+sync_postgres_url = _get_sync_url(settings.postgres_url)
+
 # Create SQLAlchemy engine (sync - for legacy code)
 engine = create_engine(
-    settings.postgres_url,
+    sync_postgres_url,
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,

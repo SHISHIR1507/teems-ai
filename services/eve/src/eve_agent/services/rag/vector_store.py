@@ -94,34 +94,53 @@ class VectorStore:
         # Generate embedding for query
         query_embedding = await self.embedding_provider.embed_one(query)
         
+        # Convert embedding to string for SQL
+        embedding_str = str(query_embedding)
+        
         # Build SQL query for vector similarity search
         # Using cosine distance: 1 - (embedding <=> query_embedding)
-        sql_query = text("""
-            SELECT 
-                id,
-                document_id,
-                chunk_index,
-                content,
-                metadata,
-                1 - (embedding <=> :query_embedding::vector) as similarity
-            FROM eve_document_chunks
-            WHERE tenant_id = :tenant_id
-            """ + ("AND document_id = :document_id" if document_id else "") + """
-            ORDER BY embedding <=> :query_embedding::vector
-            LIMIT :top_k
-        """)
-        
-        params = {
-            "query_embedding": str(query_embedding),
-            "tenant_id": tenant_id,
-            "top_k": top_k
-        }
-        
+        # Note: Using positional parameters ($1, $2, etc.) for asyncpg compatibility
         if document_id:
-            params["document_id"] = str(document_id)
+            sql_query = text("""
+                SELECT 
+                    id,
+                    document_id,
+                    chunk_index,
+                    content,
+                    metadata,
+                    1 - (embedding <=> CAST(:embedding AS vector)) as similarity
+                FROM eve_document_chunks
+                WHERE tenant_id = :tenant_id
+                AND document_id = :document_id
+                ORDER BY embedding <=> CAST(:embedding AS vector)
+                LIMIT :top_k
+            """).bindparams(
+                embedding=embedding_str,
+                tenant_id=tenant_id,
+                document_id=str(document_id),
+                top_k=top_k
+            )
+        else:
+            sql_query = text("""
+                SELECT 
+                    id,
+                    document_id,
+                    chunk_index,
+                    content,
+                    metadata,
+                    1 - (embedding <=> CAST(:embedding AS vector)) as similarity
+                FROM eve_document_chunks
+                WHERE tenant_id = :tenant_id
+                ORDER BY embedding <=> CAST(:embedding AS vector)
+                LIMIT :top_k
+            """).bindparams(
+                embedding=embedding_str,
+                tenant_id=tenant_id,
+                top_k=top_k
+            )
         
         # Execute search
-        result = await db.execute(sql_query, params)
+        result = await db.execute(sql_query)
         rows = result.fetchall()
         
         # Format results

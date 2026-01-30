@@ -19,18 +19,27 @@ TAVILY_MCP_CONFIG = {
     "env": {"TAVILY_API_KEY": None},  # Will be loaded from .env
 }
 
+import sys
+from pathlib import Path
+
+# Compute paths for MCP servers dynamically
+# dependencies.py is at: services/eve/src/eve_agent/dependencies.py
+# Path: eve_agent (1) -> src (2) -> eve (3)
+_EVE_ROOT = Path(__file__).parent.parent.parent  # services/eve/
+_SRC_DIR = str(_EVE_ROOT / "src")
+
 POSTGRES_MCP_CONFIG = {
-    "command": "python",
-    "args": ["../mcp/postgres_wrapper.py"],
+    "command": sys.executable,  # Use the same Python as the current process
+    "args": [str(_EVE_ROOT / "mcp" / "postgres_wrapper.py")],
     "env": {
-        "PYTHONPATH": "..",
+        "PYTHONPATH": _SRC_DIR,
     },
 }
 
 RAG_SYSTEM_MCP_CONFIG = {
-    "command": "python",
-    "args": ["../mcp/server.py"],
-    "env": {"PYTHONPATH": ".."},
+    "command": sys.executable,  # Use the same Python as the current process
+    "args": [str(_EVE_ROOT / "mcp" / "server.py")],
+    "env": {"PYTHONPATH": _SRC_DIR},
 }
 
 # Global MCP clients and LLM host (initialized on startup)

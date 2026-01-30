@@ -328,6 +328,7 @@ async def action_clicked(
     action_request: ActionClickedRequest,
     request: FastAPIRequest,
     user: AuthenticatedUser = Depends(require_tenant()),
+    db: AsyncSession = Depends(get_db_session),
 ):
     """Track when user clicks a recommendation button. For agents, generate conversation context."""
     action_id = action_request.action_id
@@ -338,7 +339,6 @@ async def action_clicked(
     auth_token = auth_header.replace("Bearer ", "").strip() if auth_header.startswith("Bearer ") else ""
     
     user_sessions = get_user_sessions()
-    db = await get_db_session()
     
     internal_session_id = f"{user.tenant_id}:{session_id}"
 

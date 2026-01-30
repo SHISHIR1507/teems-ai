@@ -26,15 +26,26 @@ from mcp.server.fastmcp import FastMCP
 with redirect_stdout_to_stderr():
     try:
         # Import from new structure
-        from eve_agent.database.session import SessionLocal
+        from eve_agent.database.session import SessionLocal  # For sync list_documents
+        from eve_agent.core import database as db_module  # For async query
         from eve_agent.services.rag.rag_service import rag_service
         from eve_agent.models.document import Document
-        from eve_agent.config import get_settings
+        from eve_agent.core.config import get_settings
         
         settings = get_settings()
         
+        # Initialize the async engine and session maker
+        db_module.init_engine()
+        
+        # Get the session maker after engine initialization
+        async_session_maker = db_module.async_session_maker
+        
+        if async_session_maker is None:
+            raise RuntimeError("async_session_maker is None after init_engine()")
+        
         # Initialize services validation (optional check)
         print(f"DEBUG: Initialized with DB URL: {settings.postgres_url}", file=sys.stderr)
+        print(f"DEBUG: async_session_maker initialized: {async_session_maker is not None}", file=sys.stderr)
         
     except Exception as e:
         print(f"CRITICAL ERROR during imports: {e}", file=sys.stderr)
@@ -60,34 +71,34 @@ async def query_knowledge_base(query: str, tenant_id: str = "default") -> str:
     # Redirect stdout during execution too, just in case called functions print stuff
     with redirect_stdout_to_stderr():
         try:
-            # Create a new database session
-            db = SessionLocal()
-            try:
-                # 1. Use the main query method from RAG service
-                # This handles retrieval, context building, and LLM generation
-                result = await rag_service.query(
-                    db=db,
-                    question=query,
-                    tenant_id=tenant_id,
-                    top_k=settings.rag_top_k
-                )
-                
-                answer = result["answer"]
-                sources = result.get("sources", [])
-                
-                # Format sources for display
-                if sources:
-                    sources_text = "\n\nSources:\n" + "\n".join(
-                        [f"- Source {i+1} (Score: {s.get('similarity', 0):.4f}): {s.get('content', '')[:100]}..." 
-                         for i, s in enumerate(sources)]
+            # Use async session for RAG queries (required for vector search)
+            async with async_session_maker() as db:
+                try:
+                    # 1. Use the main query method from RAG service
+                    # This handles retrieval, context building, and LLM generation
+                    result = await rag_service.query(
+                        db=db,
+                        question=query,
+                        tenant_id=tenant_id,
+                        top_k=settings.rag_top_k
                     )
-                else:
-                    sources_text = ""
-                
-                return f"{answer}{sources_text}"
-                
-            finally:
-                db.close()
+                    
+                    answer = result["answer"]
+                    sources = result.get("sources", [])
+                    
+                    # Format sources for display
+                    if sources:
+                        sources_text = "\n\nSources:\n" + "\n".join(
+                            [f"- Source {i+1} (Score: {s.get('similarity', 0):.4f}): {s.get('content', '')[:100]}..." 
+                             for i, s in enumerate(sources)]
+                        )
+                    else:
+                        sources_text = ""
+                    
+                    return f"{answer}{sources_text}"
+                    
+                finally:
+                    await db.close()
                 
         except Exception as e:
             return f"Error querying knowledge base: {str(e)}"
@@ -105,9 +116,11 @@ async def list_documents(tenant_id: str = "default") -> str:
     """
     with redirect_stdout_to_stderr():
         try:
+            print(f"DEBUG list_documents: Received tenant_id='{tenant_id}'", file=sys.stderr)
             db = SessionLocal()
             try:
                 documents = db.query(Document).filter(Document.tenant_id == tenant_id).all()
+                print(f"DEBUG list_documents: Found {len(documents)} documents", file=sys.stderr)
                 
                 if not documents:
                     return f"No documents found for tenant '{tenant_id}'."
@@ -119,12 +132,15 @@ async def list_documents(tenant_id: str = "default") -> str:
                         f"{status_icon} ID: {doc.id} | File: {doc.filename} | Chunks: {doc.total_chunks} | Created: {doc.created_at.strftime('%Y-%m-%d')}"
                     )
                 
-                return "\n".join(result_lines)
+                result = "\n".join(result_lines)
+                print(f"DEBUG list_documents: Returning result: {result[:200]}...", file=sys.stderr)
+                return result
                 
             finally:
                 db.close()
                 
         except Exception as e:
+            print(f"DEBUG list_documents: Exception: {str(e)}", file=sys.stderr)
             return f"Error listing documents: {str(e)}"
 
 if __name__ == "__main__":
