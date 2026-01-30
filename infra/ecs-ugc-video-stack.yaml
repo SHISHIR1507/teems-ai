@@ -53,6 +53,10 @@ Parameters:
     Type: String
     Default: ""
     Description: Sync API key for lipsync feature (optional)
+  GeminiApiKey:
+    Type: String
+    Default: ""
+    Description: Google Gemini API key for image generation
   Auth0Domain:
     Type: String
     Default: ""
@@ -305,6 +309,8 @@ Resources:
               Value: !Ref Auth0Audience
             - Name: AUTH0_ALGORITHM
               Value: !Ref Auth0Algorithm
+            - Name: GEMINI_API_KEY
+              Value: !Ref GeminiApiKey
           LogConfiguration:
             LogDriver: awslogs
             Options:
