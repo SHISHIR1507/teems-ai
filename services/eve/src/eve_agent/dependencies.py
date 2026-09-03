@@ -24,8 +24,9 @@ from pathlib import Path
 
 # Compute paths for MCP servers dynamically
 # dependencies.py is at: services/eve/src/eve_agent/dependencies.py
-# Path: eve_agent (1) -> src (2) -> eve (3)
-_EVE_ROOT = Path(__file__).parent.parent.parent  # services/eve/
+# MCP servers run from: services/eve/src/ (cwd)
+# They need access to: services/eve/src/ for eve_agent module
+_EVE_ROOT = Path(__file__).parent.parent.parent.parent  # services/eve/
 _SRC_DIR = str(_EVE_ROOT / "src")
 
 POSTGRES_MCP_CONFIG = {
